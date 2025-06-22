@@ -43,6 +43,11 @@ class DocumentDownloader:
                         # Если это архив, распаковываем
                         ext = Path(result['saved_name']).suffix.lower()
                         if ext == '.zip':
+                            extracted = self._extract_zip(result['path'])
+                            downloaded_files.extend(extracted)
+                        elif ext == '.rar' and RAR_SUPPORT:
+                            extracted = self._extract_rar(result['path'])
+                            downloaded_files.extend(extracted)
                         success_count += 1
                     else:
                         failed_count += 1
@@ -138,6 +143,51 @@ class DocumentDownloader:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
         return f"{reg_number}_{timestamp}_{safe_name}"
+    
+    def _extract_zip(self, file_path: str) -> List[Dict]:
+        """Распаковывает zip-архив и возвращает список файлов"""
+        extracted = []
+        try:
+            with zipfile.ZipFile(file_path, 'r') as zf:
+                for member in zf.namelist():
+                    ext = Path(member).suffix.lower()
+                    if ext in SUPPORTED_EXTENSIONS:
+                        out_path = self.download_dir / Path(member).name
+                        zf.extract(member, self.download_dir)
+                        extracted.append({
+                            "original_name": member,
+                            "saved_name": Path(member).name,
+                            "path": str(out_path),
+                            "size": out_path.stat().st_size,
+                            "uid": None
+                        })
+        except Exception as e:
+            logger.error(f"[downloader] ❌ Ошибка распаковки zip: {e}")
+        return extracted
+    
+    def _extract_rar(self, file_path: str) -> List[Dict]:
+        """Распаковывает rar-архив и возвращает список файлов"""
+        extracted = []
+        if not RAR_SUPPORT:
+            logger.warning("[downloader] RAR архивы не поддерживаются (rarfile не установлен)")
+            return extracted
+        try:
+            with rarfile.RarFile(file_path) as rf:
+                for member in rf.namelist():
+                    ext = Path(member).suffix.lower()
+                    if ext in SUPPORTED_EXTENSIONS:
+                        out_path = self.download_dir / Path(member).name
+                        rf.extract(member, self.download_dir)
+                        extracted.append({
+                            "original_name": member,
+                            "saved_name": Path(member).name,
+                            "path": str(out_path),
+                            "size": out_path.stat().st_size,
+                            "uid": None
+                        })
+        except Exception as e:
+            logger.error(f"[downloader] ❌ Ошибка распаковки rar: {e}")
+        return extracted
     
     def get_downloaded_files(self, reg_number: str) -> List[Dict]:
         """Получает список скачанных файлов для тендера"""

@@ -23,7 +23,10 @@ class DocumentDownloader:
         """
         Асинхронно скачивает документы тендера
         """
-        # Собираем все файлы из всех документов
+        # Если tender_data — это словарь с одним ключом (номером тендера), работаем с его содержимым
+        if len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
+            tender_data = list(tender_data.values())[0]
+
         documents = tender_data.get("Документы", [])
         all_files = []
         for doc in documents:
@@ -59,7 +62,7 @@ class DocumentDownloader:
                     else:
                         failed_count += 1
                 except Exception as e:
-                    logger.error(f"[downloader] ❌ Ошибка при скачивании документа: {e}")
+                    logger.error(f"[downloader] ❌ Ошибка скачивания файла: {e}")
                     failed_count += 1
         
         logger.info(f"[downloader] ✅ Скачивание завершено: {success_count} успешно, {failed_count} не удалось")

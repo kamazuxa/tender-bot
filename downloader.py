@@ -106,25 +106,28 @@ class DocumentDownloader:
                     logger.warning(f"[downloader] ⚠️ HTTP {response.status} для {name}")
                     return None
 
-                # Определяем расширение по Content-Type
-                ext = ""
-                content_type = response.headers.get("Content-Type")
-                if content_type:
-                    ext = mimetypes.guess_extension(content_type.split(';')[0].strip())
+                # 1. Пытаемся получить имя файла из Content-Disposition
+                import re
+                cd = response.headers.get("Content-Disposition")
+                filename = None
+                if cd:
+                    match = re.search(r'filename="?([^";]+)"?', cd)
+                    if match:
+                        filename = match.group(1)
+
+                # 2. Если не нашли — используем название из API
+                if not filename:
+                    filename = name
+
+                # 3. Определяем расширение
+                ext = os.path.splitext(filename)[1]
                 if not ext:
-                    ext = ".bin"  # универсальное расширение по умолчанию
+                    # Если не удалось — ставим .pdf по умолчанию
+                    ext = ".pdf"
+                    filename += ext
 
-                # Добавляем расширение, если его нет
-                if '.' not in os.path.basename(name):
-                    name += ext
-
-                # Проверяем расширение на поддержку
-                if not self._is_supported_extension(name):
-                    logger.warning(f"[downloader] ⚠️ Неподдерживаемое расширение файла: {name}")
-                    return None
-
-                # Создаём безопасное имя файла
-                safe_filename = self._create_safe_filename(reg_number, name)
+                # 4. Создаём безопасное имя файла
+                safe_filename = self._create_safe_filename(reg_number, filename)
                 file_path = self.download_dir / safe_filename
 
                 # Проверяем размер файла

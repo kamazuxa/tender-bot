@@ -45,6 +45,7 @@ class DocumentAnalyzer:
                 analysis = await self._analyze_single_document(file_info, tender_context)
                 if analysis:
                     document_analyses.append(analysis)
+                await asyncio.sleep(20)  # Задержка между запросами к OpenAI для обхода rate limit
             except Exception as e:
                 logger.error(f"[analyzer] ❌ Ошибка анализа документа {file_info.get('name', 'unknown')}: {e}")
         

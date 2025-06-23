@@ -94,26 +94,53 @@ class DamiaClient:
         Форматирует данные тендера в удобный для отображения вид
         """
         try:
-            # Пример для структуры ответа DaMIA API (замените на реальные поля из вашего ответа)
-            customer = data.get('customerName') or data.get('РазмОрг', {}).get('НаимПолн', 'Не указан')
-            subject = data.get('purchaseObjectInfo') or data.get('Продукт', {}).get('Название', 'Не указан')
-            price = data.get('maxPrice') or data.get('НачЦена', {}).get('Сумма', 'Не указана')
-            currency = data.get('currency') or data.get('НачЦена', {}).get('Валюта', '₽')
-            publication_date = data.get('publishDate') or data.get('ДатаПубл', 'Не указана')
-            submission_deadline = data.get('endDate') or data.get('ДатаОкончПодач', 'Не указана')
-            status = data.get('statusName') or data.get('Статус', 'Не указан')
-            documents = data.get('documents') or data.get('Документы', [])
+            # Если ответ содержит только один ключ — номер тендера, работаем с его содержимым
+            if len(data) == 1 and isinstance(list(data.values())[0], dict):
+                data = list(data.values())[0]
+
+            # Заказчик
+            customer = 'Не указан'
+            if 'РазмОрг' in data and isinstance(data['РазмОрг'], dict):
+                customer = data['РазмОрг'].get('НаимПолн', 'Не указан')
+            elif 'Заказчик' in data and isinstance(data['Заказчик'], list) and data['Заказчик']:
+                customer = data['Заказчик'][0].get('НаимПолн', 'Не указан')
+
+            # Предмет закупки
+            subject = data.get('Продукт', {}).get('Название', 'Не указан')
+
+            # Цена
+            price_info = data.get('НачЦена', {})
+            price = price_info.get('Сумма', 'Не указана')
+            currency = price_info.get('ВалютаНаим', '₽')
+            if price != 'Не указана':
+                price = f"{price} {currency}"
+
+            # Даты
+            publication_date = data.get('ДатаПубл', 'Не указана')
+            submission_deadline = data.get('ДатаОконч', 'Не указана')
+
+            # Статус
+            status = data.get('Статус', {})
+            if isinstance(status, dict):
+                status = status.get('Статус', 'Не указан')
+            elif isinstance(status, str):
+                pass  # уже строка
+            else:
+                status = 'Не указан'
+
+            # Документы
+            documents = data.get('Документы', [])
             doc_count = len(documents) if documents else 0
 
             return {
                 'customer': customer or 'Не указан',
                 'subject': subject or 'Не указан',
-                'price': f"{price} {currency}" if price and price != 'Не указана' else 'Не указана',
+                'price': price or 'Не указана',
                 'publication_date': publication_date or 'Не указана',
                 'submission_deadline': submission_deadline or 'Не указана',
                 'status': status or 'Не указан',
                 'document_count': doc_count,
-                'raw_data': data  # Сохраняем исходные данные для дальнейшей обработки
+                'raw_data': data
             }
         except Exception as e:
             logger.error(f"[damia] ❌ Ошибка форматирования данных: {e}")

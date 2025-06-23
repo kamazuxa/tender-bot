@@ -271,18 +271,14 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         self.app.add_handler(CallbackQueryHandler(self.handle_callback))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
     
-    async def run(self):
-        """Запускает бота"""
+    def run(self):
         try:
             self.app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
             self.setup_handlers()
-            
             logger.info("🚀 TenderBot запущен")
             print("🤖 TenderBot запущен и готов к работе!")
             print("📝 Логи сохраняются в файл:", LOG_FILE)
-            
-            await self.app.run_polling()
-            
+            self.app.run_polling()
         except Exception as e:
             logger.error(f"❌ Ошибка запуска бота: {e}")
             raise
@@ -290,4 +286,4 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
 # Создаем и запускаем бота
 if __name__ == "__main__":
     bot = TenderBot()
-    asyncio.run(bot.run())
+    bot.run()

@@ -94,37 +94,27 @@ class DamiaClient:
         Форматирует данные тендера в удобный для отображения вид
         """
         try:
-            # Извлекаем основную информацию
-            customer = data.get('РазмОрг', {}).get('НаимПолн', 'Не указан')
-            subject = data.get('Продукт', {}).get('Название', 'Не указан')
-            
-            # Обрабатываем цену
-            price_info = data.get('НачЦена', {})
-            price = price_info.get('Сумма', 'Не указана')
-            currency = price_info.get('Валюта', '₽')
-            
-            # Обрабатываем даты
-            publication_date = data.get('ДатаПубл', 'Не указана')
-            submission_deadline = data.get('ДатаОкончПодач', 'Не указана')
-            
-            # Обрабатываем статус
-            status = data.get('Статус', 'Не указан')
-            
-            # Обрабатываем документы
-            documents = data.get('Документы', [])
+            # Пример для структуры ответа DaMIA API (замените на реальные поля из вашего ответа)
+            customer = data.get('customerName') or data.get('РазмОрг', {}).get('НаимПолн', 'Не указан')
+            subject = data.get('purchaseObjectInfo') or data.get('Продукт', {}).get('Название', 'Не указан')
+            price = data.get('maxPrice') or data.get('НачЦена', {}).get('Сумма', 'Не указана')
+            currency = data.get('currency') or data.get('НачЦена', {}).get('Валюта', '₽')
+            publication_date = data.get('publishDate') or data.get('ДатаПубл', 'Не указана')
+            submission_deadline = data.get('endDate') or data.get('ДатаОкончПодач', 'Не указана')
+            status = data.get('statusName') or data.get('Статус', 'Не указан')
+            documents = data.get('documents') or data.get('Документы', [])
             doc_count = len(documents) if documents else 0
-            
+
             return {
-                'customer': customer,
-                'subject': subject,
-                'price': f"{price} {currency}" if price != 'Не указана' else price,
-                'publication_date': publication_date,
-                'submission_deadline': submission_deadline,
-                'status': status,
+                'customer': customer or 'Не указан',
+                'subject': subject or 'Не указан',
+                'price': f"{price} {currency}" if price and price != 'Не указана' else 'Не указана',
+                'publication_date': publication_date or 'Не указана',
+                'submission_deadline': submission_deadline or 'Не указана',
+                'status': status or 'Не указан',
                 'document_count': doc_count,
                 'raw_data': data  # Сохраняем исходные данные для дальнейшей обработки
             }
-            
         except Exception as e:
             logger.error(f"[damia] ❌ Ошибка форматирования данных: {e}")
             return {

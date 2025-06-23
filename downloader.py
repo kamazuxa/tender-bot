@@ -23,21 +23,28 @@ class DocumentDownloader:
         """
         Асинхронно скачивает документы тендера
         """
+        # Собираем все файлы из всех документов
         documents = tender_data.get("Документы", [])
-        if not documents:
+        all_files = []
+        for doc in documents:
+            files = doc.get("Файлы", [])
+            for f in files:
+                all_files.append(f)
+
+        if not all_files:
             logger.info(f"[downloader] 📄 Документы не найдены для тендера {reg_number}")
             return {"success": 0, "failed": 0, "files": []}
-        
-        logger.info(f"[downloader] 📥 Начинаем скачивание {len(documents)} документов")
-        
+
+        logger.info(f"[downloader] 📥 Начинаем скачивание {len(all_files)} документов")
+
         downloaded_files = []
         success_count = 0
         failed_count = 0
-        
+        # Заменяем documents на all_files в цикле скачивания
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session:
-            for doc in documents:
+            for file_info in all_files:
                 try:
-                    result = await self._download_single_document(session, doc, reg_number)
+                    result = await self._download_single_document(session, file_info, reg_number)
                     if result:
                         downloaded_files.append(result)
                         # Если это архив, распаковываем

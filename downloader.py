@@ -75,29 +75,44 @@ class DocumentDownloader:
     
     async def _download_single_document(self, session: aiohttp.ClientSession, doc: Dict, reg_number: str) -> Optional[Dict]:
         """
-        Скачивает один документ по Url и Названию
+        Скачивает один документ по Url и Названию, определяя расширение по Content-Type
         """
+        import mimetypes
+        import os
+
         url = doc.get("Url")
-        name = doc.get("Название", "unnamed.doc")
+        name = doc.get("Название", "unnamed")
 
         if not url:
             logger.warning(f"[downloader] ⚠️ Нет ссылки (Url) для файла {name}")
             return None
-
-        # Проверяем расширение файла
-        if not self._is_supported_extension(name):
-            logger.warning(f"[downloader] ⚠️ Неподдерживаемое расширение файла: {name}")
-            return None
-
-        # Создаём безопасное имя файла
-        safe_filename = self._create_safe_filename(reg_number, name)
-        file_path = self.download_dir / safe_filename
 
         try:
             async with session.get(url) as response:
                 if response.status != 200:
                     logger.warning(f"[downloader] ⚠️ HTTP {response.status} для {name}")
                     return None
+
+                # Определяем расширение по Content-Type
+                ext = ""
+                content_type = response.headers.get("Content-Type")
+                if content_type:
+                    ext = mimetypes.guess_extension(content_type.split(';')[0].strip())
+                if not ext:
+                    ext = ".bin"  # универсальное расширение по умолчанию
+
+                # Добавляем расширение, если его нет
+                if '.' not in os.path.basename(name):
+                    name += ext
+
+                # Проверяем расширение на поддержку
+                if not self._is_supported_extension(name):
+                    logger.warning(f"[downloader] ⚠️ Неподдерживаемое расширение файла: {name}")
+                    return None
+
+                # Создаём безопасное имя файла
+                safe_filename = self._create_safe_filename(reg_number, name)
+                file_path = self.download_dir / safe_filename
 
                 # Проверяем размер файла
                 content_length = response.headers.get('content-length')

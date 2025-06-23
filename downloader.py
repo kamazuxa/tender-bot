@@ -87,8 +87,21 @@ class DocumentDownloader:
             logger.warning(f"[downloader] ⚠️ Нет ссылки (Url) для файла {name}")
             return None
 
+        # Подделка заголовков браузера
+        referer = f"https://zakupki.gov.ru/epz/order/notice/ea20/view/common-info.html?regNumber={reg_number}"
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/125.0.0.0 Safari/537.36"
+            ),
+            "Accept": "*/*",
+            "Accept-Language": "ru,en;q=0.9",
+            "Referer": referer
+        }
+
         try:
-            async with session.get(url) as response:
+            async with session.get(url, headers=headers) as response:
                 if response.status != 200:
                     logger.warning(f"[downloader] ⚠️ HTTP {response.status} для {name}")
                     return None

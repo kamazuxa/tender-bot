@@ -75,66 +75,58 @@ class DocumentDownloader:
     
     async def _download_single_document(self, session: aiohttp.ClientSession, doc: Dict, reg_number: str) -> Optional[Dict]:
         """
-        Скачивает один документ
+        Скачивает один документ по Url и Названию
         """
-        uid = doc.get("externalId")
-        name = doc.get("name", "unnamed.doc")
-        
-        if not uid:
-            logger.warning(f"[downloader] ⚠️ Отсутствует UID для документа {name}")
+        url = doc.get("Url")
+        name = doc.get("Название", "unnamed.doc")
+
+        if not url:
+            logger.warning(f"[downloader] ⚠️ Нет ссылки (Url) для файла {name}")
             return None
-        
+
         # Проверяем расширение файла
         if not self._is_supported_extension(name):
             logger.warning(f"[downloader] ⚠️ Неподдерживаемое расширение файла: {name}")
             return None
-        
-        # Формируем URL для скачивания
-        url = f"https://zakupki.gov.ru/44fz/filestore/public/1.0/download/priz/file.html?uid={uid}"
-        
+
+        # Создаём безопасное имя файла
+        safe_filename = self._create_safe_filename(reg_number, name)
+        file_path = self.download_dir / safe_filename
+
         try:
             async with session.get(url) as response:
                 if response.status != 200:
                     logger.warning(f"[downloader] ⚠️ HTTP {response.status} для {name}")
                     return None
-                
+
                 # Проверяем размер файла
                 content_length = response.headers.get('content-length')
                 if content_length and int(content_length) > MAX_FILE_SIZE:
                     logger.warning(f"[downloader] ⚠️ Файл слишком большой: {name} ({content_length} байт)")
                     return None
-                
-                # Создаем безопасное имя файла
-                safe_filename = self._create_safe_filename(reg_number, name)
-                file_path = self.download_dir / safe_filename
-                
+
                 # Скачиваем файл
                 content = await response.read()
-                
-                # Дополнительная проверка размера
                 if len(content) > MAX_FILE_SIZE:
                     logger.warning(f"[downloader] ⚠️ Файл превышает лимит после скачивания: {name}")
                     return None
-                
-                # Сохраняем файл
+
                 async with aiofiles.open(file_path, 'wb') as f:
                     await f.write(content)
-                
+
                 logger.info(f"[downloader] ✅ Скачан файл: {safe_filename}")
-                
+
                 return {
                     "original_name": name,
                     "saved_name": safe_filename,
                     "path": str(file_path),
                     "size": len(content),
-                    "uid": uid
+                    "url": url
                 }
-                
         except aiohttp.ClientError as e:
             logger.error(f"[downloader] 🌐 Ошибка сети при скачивании {name}: {e}")
         except Exception as e:
             logger.error(f"[downloader] ❌ Ошибка при скачивании {name}: {e}")
-        
         return None
     
     def _is_supported_extension(self, filename: str) -> bool:

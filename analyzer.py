@@ -123,14 +123,41 @@ class DocumentAnalyzer:
             return None
     
     async def _read_file_content(self, file_path: Path) -> Optional[str]:
-        """Читает содержимое файла, поддерживает текст, doc/docx, pdf, изображения"""
+        """Читает содержимое файла, поддерживает текст, doc/docx, pdf, изображения, архивы, таблицы"""
         try:
+            import mimetypes
             ext = file_path.suffix.lower()
-            if ext in ['.txt', '.doc', '.docx']:
+            content = None
+
+            # 1. Текстовые файлы
+            if ext == '.txt':
                 import aiofiles
-                async with aiofiles.open(file_path, 'r', encoding='utf-8') as f:
+                async with aiofiles.open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     content = await f.read()
                     return content
+
+            # 2. DOCX
+            elif ext == '.docx':
+                try:
+                    from docx import Document
+                    doc = Document(str(file_path))
+                    text = '\n'.join([p.text for p in doc.paragraphs])
+                    return text
+                except Exception as e:
+                    logger.error(f"[analyzer] ❌ Ошибка чтения DOCX: {e}")
+                    return None
+
+            # 3. DOC (старый формат) — через textract
+            elif ext == '.doc':
+                try:
+                    import textract
+                    text = textract.process(str(file_path)).decode('utf-8', errors='ignore')
+                    return text
+                except Exception as e:
+                    logger.error(f"[analyzer] ❌ Ошибка чтения DOC: {e}")
+                    return None
+
+            # 4. PDF
             elif ext == '.pdf' and PDF_SUPPORT:
                 try:
                     with open(file_path, 'rb') as f:
@@ -140,6 +167,19 @@ class DocumentAnalyzer:
                 except Exception as e:
                     logger.error(f"[analyzer] ❌ Ошибка чтения PDF: {e}")
                     return None
+
+            # 5. XLS/XLSX
+            elif ext in ['.xls', '.xlsx']:
+                try:
+                    import pandas as pd
+                    df = pd.read_excel(str(file_path), dtype=str, engine='openpyxl' if ext == '.xlsx' else None)
+                    text = df.to_string(index=False)
+                    return text
+                except Exception as e:
+                    logger.error(f"[analyzer] ❌ Ошибка чтения Excel: {e}")
+                    return None
+
+            # 6. Изображения (OCR)
             elif ext in ['.jpeg', '.jpg', '.png'] and OCR_SUPPORT:
                 try:
                     img = Image.open(file_path)
@@ -148,6 +188,53 @@ class DocumentAnalyzer:
                 except Exception as e:
                     logger.error(f"[analyzer] ❌ Ошибка OCR: {e}")
                     return None
+
+            # 7. ZIP архивы — рекурсивно анализируем вложенные файлы
+            elif ext == '.zip':
+                import zipfile
+                extracted_texts = []
+                try:
+                    with zipfile.ZipFile(file_path, 'r') as zf:
+                        for member in zf.namelist():
+                            if not member.endswith('/'):
+                                with zf.open(member) as f:
+                                    # Сохраняем во временный файл
+                                    import tempfile
+                                    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(member).suffix) as tmp:
+                                        tmp.write(f.read())
+                                        tmp_path = Path(tmp.name)
+                                    # Рекурсивно анализируем
+                                    text = await self._read_file_content(tmp_path)
+                                    if text:
+                                        extracted_texts.append(f"--- {member} ---\n{text}")
+                                    tmp_path.unlink(missing_ok=True)
+                    return '\n\n'.join(extracted_texts)
+                except Exception as e:
+                    logger.error(f"[analyzer] ❌ Ошибка чтения ZIP: {e}")
+                    return None
+
+            # 8. RAR архивы — рекурсивно анализируем вложенные файлы
+            elif ext == '.rar':
+                try:
+                    import rarfile
+                    extracted_texts = []
+                    with rarfile.RarFile(str(file_path)) as rf:
+                        for member in rf.namelist():
+                            if not member.endswith('/'):
+                                with rf.open(member) as f:
+                                    import tempfile
+                                    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(member).suffix) as tmp:
+                                        tmp.write(f.read())
+                                        tmp_path = Path(tmp.name)
+                                    text = await self._read_file_content(tmp_path)
+                                    if text:
+                                        extracted_texts.append(f"--- {member} ---\n{text}")
+                                    tmp_path.unlink(missing_ok=True)
+                    return '\n\n'.join(extracted_texts)
+                except Exception as e:
+                    logger.error(f"[analyzer] ❌ Ошибка чтения RAR: {e}")
+                    return None
+
             else:
                 logger.info(f"[analyzer] 📄 Пропускаем файл с неподдерживаемым расширением: {file_path.suffix}")
                 return None

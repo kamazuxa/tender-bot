@@ -165,6 +165,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             
             # Получаем данные о тендере
             tender_data = await damia_client.get_tender_info(reg_number)
+            logger.info(f"Ответ DaMIA: {tender_data}")
             
             if not tender_data:
                 await update.message.reply_text(

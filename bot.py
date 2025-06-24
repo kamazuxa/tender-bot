@@ -452,7 +452,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     await context.bot.send_message(chat_id=query.message.chat_id, text="⚠️ Не удалось скачать документы для анализа")
                 
                 # Обновляем статус сессии
-                self.user_sessions[user_id]['status'] = 'completed'
+                self.user_sessions[user_id]['status'] = 'ready_for_analysis'
                 
             except Exception as e:
                 logger.error(f"[bot] Ошибка анализа тендера {reg_number}: {e}")
@@ -487,7 +487,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             product_info = tender_data.get('Продукт', {})
             objects = product_info.get('ОбъектыЗак', [])
             if not objects:
-                await query.edit_message_text("❌ Товарные позиции не найдены.")
+                await query.edit_message_text("В этом тендере отсутствуют товарные позиции. Возможно, это закупка услуг или данные не заполнены.")
                 return
             # Показываем кнопки с позициями
             keyboard = []
@@ -496,7 +496,6 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 keyboard.append([InlineKeyboardButton(name, callback_data=f"find_supplier_{idx}")])
             await query.edit_message_text("Выберите товарную позицию для поиска поставщиков:", reply_markup=InlineKeyboardMarkup(keyboard))
         elif query.data.startswith("find_supplier_"):
-            user_id = query.from_user.id
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return

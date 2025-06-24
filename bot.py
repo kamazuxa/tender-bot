@@ -478,12 +478,15 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             # Обновляем сообщение с новой страницей документов
             await self._update_documents_message(context.bot, query.message.chat_id, query.message.message_id, tender_data, reg_number, page)
         elif query.data == "find_suppliers":
-            user_id = query.from_user.id
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
             tender_data = self.user_sessions[user_id]['tender_data']
+            import json
             logger.info(f"[bot] tender_data: {json.dumps(tender_data, ensure_ascii=False, indent=2)}")
+            # Универсальный способ извлечения товарных позиций
+            if len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
+                tender_data = list(tender_data.values())[0]
             product_info = tender_data.get('Продукт', {})
             objects = product_info.get('ОбъектыЗак', [])
             if not objects:
@@ -501,6 +504,9 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 return
             idx = int(query.data.split('_')[-1])
             tender_data = self.user_sessions[user_id]['tender_data']
+            # Универсальный способ извлечения товарных позиций
+            if len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
+                tender_data = list(tender_data.values())[0]
             product_info = tender_data.get('Продукт', {})
             objects = product_info.get('ОбъектыЗак', [])
             if idx >= len(objects):

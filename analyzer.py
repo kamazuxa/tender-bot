@@ -45,7 +45,6 @@ class DocumentAnalyzer:
                 analysis = await self._analyze_single_document(file_info, tender_context)
                 if analysis:
                     document_analyses.append(analysis)
-                await asyncio.sleep(20)  # Задержка между запросами к OpenAI для обхода rate limit
             except Exception as e:
                 logger.error(f"[analyzer] ❌ Ошибка анализа документа {file_info.get('name', 'unknown')}: {e}")
         
@@ -140,9 +139,12 @@ class DocumentAnalyzer:
                 result = subprocess.run(['antiword', str(file_path)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 return result.stdout.decode('utf-8', errors='ignore')
             elif ext == '.pdf':
-                import fitz  # PyMuPDF
-                doc = fitz.open(str(file_path))
-                return "\n".join(page.get_text() for page in doc)
+                text = ""
+                with open(file_path, 'rb') as file:
+                    pdf_reader = PyPDF2.PdfReader(file)
+                    for page in pdf_reader.pages:
+                        text += page.extract_text() + "\n"
+                return text
             elif ext in ['.xls', '.xlsx']:
                 import pandas as pd
                 df = pd.read_excel(str(file_path), dtype=str, engine='openpyxl' if ext == '.xlsx' else None)

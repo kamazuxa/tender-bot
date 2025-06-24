@@ -17,6 +17,15 @@ import tempfile
 from serpapi import GoogleSearch
 import json
 import openai
+from urllib.parse import urlparse
+try:
+    import httpx
+except ImportError:
+    httpx = None
+try:
+    from bs4 import BeautifulSoup
+except ImportError:
+    BeautifulSoup = None
 
 # Настройка логирования
 logging.basicConfig(
@@ -28,6 +37,29 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+EXCLUDE_DOMAINS = [
+    "avito.ru", "wildberries.ru", "ozon.ru", "market.yandex.ru", "lavka.yandex.ru",
+    "beru.ru", "goods.ru", "tmall.ru", "aliexpress.ru"
+]
+
+def is_good_domain(url):
+    netloc = urlparse(url).netloc.lower()
+    return not any(domain in netloc for domain in EXCLUDE_DOMAINS)
+
+async def fetch_html(url):
+    if not httpx or not BeautifulSoup:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url, follow_redirects=True)
+            if resp.status_code == 200:
+                soup = BeautifulSoup(resp.text, 'html.parser')
+                text = soup.get_text(separator=' ', strip=True)
+                return text[:8000]  # Ограничим для GPT
+    except Exception as e:
+        logger.error(f"[bot] Ошибка скачивания {url}: {e}")
+    return None
 
 def format_price(price_raw):
     """Форматирует цену с пробелами и заменяет валюту на 'рублей'"""
@@ -525,33 +557,33 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         return {'ru': ru, 'en': en}
 
     async def _extract_suppliers_gpt(self, name, quantity, search_results):
-        prompt = f"""
-        Вот результаты поиска поставщиков по товару: {name} (нужно: {quantity})
-        На русском:
-        {search_results['ru']}
-        На английском:
-        {search_results['en']}
-        ---
-        Извлеки из этого текста список поставщиков, цены, телефоны, сайты. Дай список в виде:
-        - Название: ...
-        - Цена: ...
-        - Телефон: ...
-        - Сайт: ...
-        Если информации нет — напиши 'нет данных'.
-        """
+        links = []
+        for lang in ['ru', 'en']:
+            for item in search_results[lang].get('organic_results', []):
+                url = item.get('link') or item.get('url')
+                if url and is_good_domain(url):
+                    links.append(url)
+        results = []
         client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
-        try:
-            response = await client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=800,
-                temperature=0.2,
-            )
-            answer = response.choices[0].message.content
-            return answer.strip()
-        except Exception as e:
-            logger.error(f"[bot] Ошибка OpenAI: {e}")
-            return "[Ошибка при обращении к GPT. Попробуйте позже.]"
+        for url in links[:3]:  # Ограничим 3 сайтами для скорости
+            html = await fetch_html(url) if httpx and BeautifulSoup else None
+            if html:
+                prompt = f"""Вот страница сайта по товару: {name} (нужно: {quantity})\n\n{html}\n---\nИзвлеки из этого текста:\n- Название компании\n- Цена\n- Телефон\n- Email\n- Сайт\nЕсли информации нет — напиши 'нет данных'."""
+                try:
+                    response = await client.chat.completions.create(
+                        model=OPENAI_MODEL,
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=800,
+                        temperature=0.2,
+                    )
+                    answer = response.choices[0].message.content
+                    results.append(f"<b>Сайт:</b> {url}\n{answer.strip()}")
+                except Exception as e:
+                    logger.error(f"[bot] Ошибка OpenAI: {e}")
+                    results.append(f"<b>Сайт:</b> {url}\n[Ошибка при обращении к GPT]")
+        if not results:
+            return "Не удалось найти подходящие сайты с контактами поставщиков."
+        return "\n\n".join(results)
     
     async def _send_products_list_to_chat(self, bot, chat_id: int, tender_data: dict, page: int = 0, message_id: int = None) -> None:
         """Отправляет или обновляет список товарных позиций в чат с пагинацией"""

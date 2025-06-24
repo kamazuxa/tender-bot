@@ -15,6 +15,7 @@ import re
 import zipfile
 import tempfile
 from serpapi import GoogleSearch
+import json
 
 # Настройка логирования
 logging.basicConfig(
@@ -247,9 +248,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
 📅 **Дата публикации:** {format_date(tender_info['publication_date'])}
 ⏰ **Срок подачи до:** {format_date(tender_info['submission_deadline'])}
 
-📍 **Место поставки:** {tender_info['delivery_place']}
-        """
-        
+📍 **Место поставки:** {tender_info['delivery_place']}"""
         keyboard = [
             [InlineKeyboardButton("📦 Товарные позиции", callback_data=f"products_{reg_number}")],
             [InlineKeyboardButton("📄 Документы", callback_data=f"documents_{reg_number}")],
@@ -258,7 +257,6 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             [InlineKeyboardButton("🔎 Найти поставщиков", callback_data="find_suppliers")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
         await update.message.reply_text(info_text, parse_mode='Markdown', reply_markup=reply_markup)
     
     async def _send_analysis_to_chat(self, bot, chat_id: int, analysis_result: dict) -> None:
@@ -485,6 +483,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
             tender_data = self.user_sessions[user_id]['tender_data']
+            logger.info(f"[bot] tender_data: {json.dumps(tender_data, ensure_ascii=False, indent=2)}")
             product_info = tender_data.get('Продукт', {})
             objects = product_info.get('ОбъектыЗак', [])
             if not objects:
@@ -622,6 +621,9 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             
             if nav_buttons:
                 keyboard.append(nav_buttons)
+        
+        # Кнопка поиска поставщиков
+        keyboard.append([InlineKeyboardButton("🔎 Найти поставщиков", callback_data="find_suppliers")])
         
         reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
         

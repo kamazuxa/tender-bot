@@ -286,8 +286,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             [InlineKeyboardButton("📦 Товарные позиции", callback_data=f"products_{reg_number}")],
             [InlineKeyboardButton("📄 Документы", callback_data=f"documents_{reg_number}")],
             [InlineKeyboardButton("🏢 Подробная информация", callback_data=f"details_{reg_number}")],
-            [InlineKeyboardButton("📊 Подробный анализ", callback_data=f"analyze_{reg_number}")],
-            [InlineKeyboardButton("🔎 Найти поставщиков", callback_data="find_suppliers")]
+            [InlineKeyboardButton("📊 Подробный анализ", callback_data=f"analyze_{reg_number}")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(info_text, parse_mode='Markdown', reply_markup=reply_markup)
@@ -310,7 +309,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         
         # После анализа добавляем кнопку поиска поставщиков
         keyboard = [[InlineKeyboardButton("🔎 Найти поставщиков", callback_data="find_suppliers")]]
-        await bot.send_message(chat_id=chat_id, text="Хотите найти поставщиков по товарным позициям?", reply_markup=InlineKeyboardMarkup(keyboard))
+        await bot.send_message(chat_id=chat_id, text="Хотите найти поставщиков по результатам анализа?", reply_markup=InlineKeyboardMarkup(keyboard))
     
     async def _send_analysis(self, update: Update, analysis_result: dict) -> None:
         """Отправляет результаты анализа"""
@@ -495,51 +494,21 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             # Обновляем сообщение с новой страницей документов
             await self._update_documents_message(context.bot, query.message.chat_id, query.message.message_id, tender_data, reg_number, page)
         elif query.data == "find_suppliers":
+            # После анализа: формируем поисковые запросы и ищем поставщиков
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
             tender_data = self.user_sessions[user_id]['tender_data']
-            import json
-            logger.info(f"[bot] tender_data: {json.dumps(tender_data, ensure_ascii=False, indent=2)}")
-            # Универсальный способ извлечения товарных позиций
-            if len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
-                tender_data = list(tender_data.values())[0]
-            product_info = tender_data.get('Продукт', {})
-            objects = product_info.get('ОбъектыЗак', [])
-            if not objects:
-                await query.edit_message_text("В этом тендере отсутствуют товарные позиции. Возможно, это закупка услуг или данные не заполнены.")
-                return
-            # Показываем кнопки с позициями
-            keyboard = []
-            for idx, obj in enumerate(objects):
-                name = obj.get('Наименование', f'Позиция {idx+1}')
-                keyboard.append([InlineKeyboardButton(name, callback_data=f"find_supplier_{idx}")])
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text="Выберите товарную позицию для поиска поставщиков:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        elif query.data.startswith("find_supplier_"):
-            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
-                await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
-                return
-            idx = int(query.data.split('_')[-1])
-            tender_data = self.user_sessions[user_id]['tender_data']
-            # Универсальный способ извлечения товарных позиций
-            if len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
-                tender_data = list(tender_data.values())[0]
-            product_info = tender_data.get('Продукт', {})
-            objects = product_info.get('ОбъектыЗак', [])
-            if idx >= len(objects):
-                await query.edit_message_text("❌ Позиция не найдена.")
-                return
-            obj = objects[idx]
-            name = obj.get('Наименование', '')
-            quantity = obj.get('Количество', '')
-            await query.edit_message_text(f"🔎 Ищу поставщиков по позиции: {name} (нужно: {quantity})...")
-            search_results = await self._search_suppliers_serpapi(name)
-            gpt_result = await self._extract_suppliers_gpt(name, quantity, search_results)
-            await context.bot.send_message(chat_id=query.message.chat_id, text=f"<b>{name}</b> (нужно: {quantity}):\n{gpt_result}", parse_mode='HTML')
+            formatted_info = self.user_sessions[user_id]['formatted_info']
+            # 1. Краткое резюме
+            await context.bot.send_message(chat_id=query.message.chat_id, text=f"🤖 Краткое резюме по тендеру:\n{formatted_info['subject']}\n{formatted_info['summary'] if 'summary' in formatted_info else ''}")
+            # 2. Генерируем поисковые запросы для SerpAPI на основе анализа
+            search_queries = await self._generate_supplier_queries(formatted_info)
+            for search_query in search_queries:
+                await context.bot.send_message(chat_id=query.message.chat_id, text=f"🔎 Поиск поставщиков по запросу: {search_query}")
+                search_results = await self._search_suppliers_serpapi(search_query)
+                gpt_result = await self._extract_suppliers_gpt_ranked(search_query, search_results)
+                await context.bot.send_message(chat_id=query.message.chat_id, text=gpt_result, parse_mode='HTML')
     
     async def _search_suppliers_serpapi(self, query):
         from concurrent.futures import ThreadPoolExecutor
@@ -560,10 +529,15 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             en = await loop.run_in_executor(executor, search, 'en')
         return {'ru': ru, 'en': en}
 
-    async def _extract_suppliers_gpt(self, name, quantity, search_results):
+    async def _extract_suppliers_gpt_ranked(self, search_query, search_results):
+        # Авторанжирование ссылок по наличию ключевых слов до передачи в GPT
         if not httpx or not BeautifulSoup:
             return ("Для поиска поставщиков необходимо установить зависимости: httpx и beautifulsoup4.\n"
                     "Выполните команду: pip install httpx beautifulsoup4")
+        KEYWORDS = [
+            'цена', 'телефон', 'e-mail', 'опт', 'заказ', 'купить', 'заказать', 'оформить',
+            'оптом', 'розница', 'стоимость', 'в наличии'
+        ]
         links = []
         for lang in ['ru', 'en']:
             for item in search_results[lang].get('organic_results', []):
@@ -572,26 +546,29 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     links.append(url)
         if not links:
             return "В поисковой выдаче не найдено подходящих сайтов (все ссылки — маркетплейсы или агрегаторы)."
-        results = [f"Пробую сайты:\n" + '\n'.join(links[:7])]
-        client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
-        for url in links[:7]:  # Увеличили лимит до 7
+        filtered_links = []
+        for url in links[:10]:
             html = await fetch_html(url)
-            if html:
-                prompt = f"""Вот страница сайта по товару: {name} (нужно: {quantity})\n\n{html}\n---\nИзвлеки из этого текста:\n- Название компании\n- Цена\n- Телефон\n- Email\n- Сайт\nЕсли информации нет — напиши 'нет данных'."""
-                try:
-                    response = await client.chat.completions.create(
-                        model=OPENAI_MODEL,
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=800,
-                        temperature=0.2,
-                    )
-                    answer = response.choices[0].message.content
-                    results.append(f"<b>Сайт:</b> {url}\n{answer.strip()}")
-                except Exception as e:
-                    logger.error(f"[bot] Ошибка OpenAI: {e}")
-                    results.append(f"<b>Сайт:</b> {url}\n[Ошибка при обращении к GPT]")
-        if len(results) == 1:
-            return "Не удалось найти подходящие сайты с контактами поставщиков."
+            if html and any(word in html.lower() for word in KEYWORDS):
+                filtered_links.append((url, html))
+        if not filtered_links:
+            return "Не найдено сайтов с релевантной информацией (нет ключевых слов: цена, телефон, e-mail, опт, заказ, купить, заказать, оформить, оптом, розница, стоимость, в наличии)."
+        results = []
+        client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
+        for url, html in filtered_links[:5]:
+            prompt = f"""Вот страница сайта по запросу: {search_query}\n\n{html}\n---\nИзвлеки из этого текста:\n- Название компании\n- Цена\n- Телефон\n- Email\n- Сайт\nЕсли информации нет — напиши 'нет данных'."""
+            try:
+                response = await client.chat.completions.create(
+                    model=OPENAI_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=800,
+                    temperature=0.2,
+                )
+                answer = response.choices[0].message.content
+                results.append(f"<b>Сайт:</b> {url}\n{answer.strip()}")
+            except Exception as e:
+                logger.error(f"[bot] Ошибка OpenAI: {e}")
+                results.append(f"<b>Сайт:</b> {url}\n[Ошибка при обращении к GPT]")
         return "\n\n".join(results)
     
     async def _send_products_list_to_chat(self, bot, chat_id: int, tender_data: dict, page: int = 0, message_id: int = None) -> None:
@@ -661,9 +638,6 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             
             if nav_buttons:
                 keyboard.append(nav_buttons)
-        
-        # Кнопка поиска поставщиков
-        keyboard.append([InlineKeyboardButton("🔎 Найти поставщиков", callback_data="find_suppliers")])
         
         reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
         
@@ -860,6 +834,12 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         except Exception as e:
             logger.error(f"❌ Ошибка запуска бота: {e}")
             raise
+
+    async def _generate_supplier_queries(self, formatted_info):
+        # Пример: возвращаем список поисковых запросов на основе анализа
+        # Можно сделать умнее, если в анализе есть ключевые слова
+        subject = formatted_info.get('subject', '')
+        return [subject] if subject else []
 
 # Создаем и запускаем бота
 if __name__ == "__main__":

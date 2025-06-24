@@ -254,7 +254,8 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             [InlineKeyboardButton("📦 Товарные позиции", callback_data=f"products_{reg_number}")],
             [InlineKeyboardButton("📄 Документы", callback_data=f"documents_{reg_number}")],
             [InlineKeyboardButton("🏢 Подробная информация", callback_data=f"details_{reg_number}")],
-            [InlineKeyboardButton("📊 Подробный анализ с помощью ИИ", callback_data=f"analyze_{reg_number}")]
+            [InlineKeyboardButton("📊 Подробный анализ", callback_data=f"analyze_{reg_number}")],
+            [InlineKeyboardButton("🔎 Найти поставщиков", callback_data="find_suppliers")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         

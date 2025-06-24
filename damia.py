@@ -100,10 +100,18 @@ class DamiaClient:
 
             # Заказчик
             customer = 'Не указан'
+            customer_inn = 'Не указан'
+            customer_address = 'Не указан'
+            
+            # Пробуем получить данные заказчика из разных полей
             if 'РазмОрг' in data and isinstance(data['РазмОрг'], dict):
                 customer = data['РазмОрг'].get('НаимПолн', 'Не указан')
+                customer_inn = data['РазмОрг'].get('ИНН', 'Не указан')
+                customer_address = data['РазмОрг'].get('АдресПолн', 'Не указан')
             elif 'Заказчик' in data and isinstance(data['Заказчик'], list) and data['Заказчик']:
                 customer = data['Заказчик'][0].get('НаимПолн', 'Не указан')
+                customer_inn = data['Заказчик'][0].get('ИНН', 'Не указан')
+                customer_address = data['Заказчик'][0].get('АдресПолн', 'Не указан')
 
             # Предмет закупки
             subject = data.get('Продукт', {}).get('Название', 'Не указан')
@@ -112,7 +120,7 @@ class DamiaClient:
             price_info = data.get('НачЦена', {})
             price = price_info.get('Сумма', 'Не указана')
             currency = price_info.get('ВалютаНаим', '₽')
-            if price != 'Не указана':
+            if price != 'Не указана' and price:
                 price = f"{price} {currency}"
 
             # Даты
@@ -132,26 +140,55 @@ class DamiaClient:
             documents = data.get('Документы', [])
             doc_count = len(documents) if documents else 0
 
+            # Дополнительная информация
+            procurement_type = data.get('СпособРазм', 'Не указан')  # Используем СпособРазм вместо ТипЗакупки
+            procurement_method = data.get('СпособРазм', 'Не указан')
+            delivery_place = data.get('МестоПостав', 'Не указано')  # Используем МестоПостав
+            delivery_terms = data.get('СрокПостав', 'Не указан')  # Используем СрокПостав
+            
+            # Обеспечение заявки
+            application_guarantee = data.get('ОбеспУчаст', {})
+            guarantee_amount = application_guarantee.get('Сумма', 'Не указана') if application_guarantee else 'Не указана'
+            
+            # Источник финансирования (может отсутствовать в API)
+            funding_source = 'Не указан'  # Это поле может отсутствовать в DaMIA API
+
             return {
                 'customer': customer or 'Не указан',
+                'customer_inn': customer_inn or 'Не указан',
+                'customer_address': customer_address or 'Не указан',
                 'subject': subject or 'Не указан',
                 'price': price or 'Не указана',
                 'publication_date': publication_date or 'Не указана',
                 'submission_deadline': submission_deadline or 'Не указана',
                 'status': status or 'Не указан',
                 'document_count': doc_count,
+                'procurement_type': procurement_type or 'Не указан',
+                'procurement_method': procurement_method or 'Не указан',
+                'delivery_place': delivery_place or 'Не указано',
+                'delivery_terms': delivery_terms or 'Не указан',
+                'guarantee_amount': guarantee_amount or 'Не указана',
+                'funding_source': funding_source or 'Не указан',
                 'raw_data': data
             }
         except Exception as e:
             logger.error(f"[damia] ❌ Ошибка форматирования данных: {e}")
             return {
                 'customer': 'Ошибка обработки',
+                'customer_inn': 'Ошибка обработки',
+                'customer_address': 'Ошибка обработки',
                 'subject': 'Ошибка обработки',
                 'price': 'Ошибка обработки',
                 'publication_date': 'Ошибка обработки',
                 'submission_deadline': 'Ошибка обработки',
                 'status': 'Ошибка обработки',
                 'document_count': 0,
+                'procurement_type': 'Ошибка обработки',
+                'procurement_method': 'Ошибка обработки',
+                'delivery_place': 'Ошибка обработки',
+                'delivery_terms': 'Ошибка обработки',
+                'guarantee_amount': 'Ошибка обработки',
+                'funding_source': 'Ошибка обработки',
                 'raw_data': data
             }
 

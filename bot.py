@@ -539,15 +539,15 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         - Сайт: ...
         Если информации нет — напиши 'нет данных'.
         """
-        openai.api_key = OPENAI_API_KEY
+        client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
         try:
-            response = await openai.ChatCompletion.acreate(
+            response = await client.chat.completions.create(
                 model=OPENAI_MODEL,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=800,
                 temperature=0.2,
             )
-            answer = response['choices'][0]['message']['content']
+            answer = response.choices[0].message.content
             return answer.strip()
         except Exception as e:
             logger.error(f"[bot] Ошибка OpenAI: {e}")

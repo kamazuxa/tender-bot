@@ -2,7 +2,7 @@ import logging
 import asyncio
 from typing import Dict, List, Optional
 from pathlib import Path
-import openai
+from openai import OpenAI
 from config import OPENAI_API_KEY, OPENAI_MODEL, USE_VPN_FOR_OPENAI, VPN_INTERFACE
 import mimetypes
 try:
@@ -23,7 +23,7 @@ class DocumentAnalyzer:
     def __init__(self, api_key: str, model: str = OPENAI_MODEL):
         self.api_key = api_key
         self.model = model
-        openai.api_key = api_key
+        self.client = OpenAI(api_key=api_key)
     
     async def analyze_tender_documents(self, tender_info: Dict, downloaded_files: List[Dict]) -> Dict:
         """
@@ -221,7 +221,7 @@ class DocumentAnalyzer:
             if USE_VPN_FOR_OPENAI:
                 await self._setup_vpn_connection()
             
-            response = await openai.ChatCompletion.acreate(
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=[
                     {"role": "system", "content": "Ты эксперт по анализу тендерной документации. Твоя задача - предоставить четкий и структурированный анализ документов тендеров."},

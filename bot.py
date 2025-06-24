@@ -300,24 +300,33 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             await self.help_command(update, context)
         elif query.data == "status":
             await self.status_command(update, context)
-        elif query.data.startswith("products_"):
+        elif query.data.startswith("products_") and not query.data.startswith("products_page_"):
             reg_number = query.data.split("_")[1]
             user_id = query.from_user.id
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
             tender_data = self.user_sessions[user_id]['tender_data']
-            await self._send_products_list_to_chat(context.bot, query.message.chat_id, tender_data, page=0)
+            # Первая страница: отправляем новое сообщение
+            sent = await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text="Загрузка товарных позиций..."
+            )
+            await self._send_products_list_to_chat(context.bot, query.message.chat_id, tender_data, page=0, message_id=sent.message_id)
         elif query.data.startswith("products_page_"):
-            page = int(query.data.split("_")[2])
+            try:
+                page = int(query.data.split("_")[2])
+            except Exception:
+                page = 0
             user_id = query.from_user.id
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
             tender_data = self.user_sessions[user_id]['tender_data']
+            # Навигация: обновляем текущее сообщение
+            logger.info(f"[bot] Навигация по товарам: page={page}, message_id={query.message.message_id}")
             await self._send_products_list_to_chat(context.bot, query.message.chat_id, tender_data, page=page, message_id=query.message.message_id)
         elif query.data == "current_page":
-            # Просто отвечаем на callback без изменений
             await query.answer("Текущая страница")
             
         elif query.data.startswith("documents_"):
@@ -371,11 +380,13 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 download_result = await downloader.download_documents(tender_data, reg_number)
                 
                 if download_result['success'] > 0 and download_result['files']:
+                    logger.info(f"[bot] Содержимое download_result['files']: {download_result['files']}")
                     # Создаем временный архив
                     with tempfile.TemporaryDirectory() as tmpdir:
                         zip_path = os.path.join(tmpdir, f"tender_{reg_number}.zip")
                         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                            for file_path in download_result['files']:
+                            for file_info in download_result['files']:
+                                file_path = file_info['path']
                                 arcname = os.path.basename(file_path)
                                 zipf.write(file_path, arcname=arcname)
                         # Отправляем архив пользователю

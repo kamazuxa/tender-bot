@@ -504,6 +504,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             await context.bot.send_message(chat_id=query.message.chat_id, text=f"🤖 Краткое резюме по тендеру:\n{formatted_info['subject']}\n{formatted_info['summary'] if 'summary' in formatted_info else ''}")
             # 2. Генерируем поисковые запросы для SerpAPI на основе анализа
             search_queries = await self._generate_supplier_queries(formatted_info)
+            logger.info(f"[bot] Поисковые запросы для SerpAPI: {search_queries}")
             for search_query in search_queries:
                 await context.bot.send_message(chat_id=query.message.chat_id, text=f"🔎 Поиск поставщиков по запросу: {search_query}")
                 search_results = await self._search_suppliers_serpapi(search_query)
@@ -538,6 +539,9 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             'цена', 'телефон', 'e-mail', 'опт', 'заказ', 'купить', 'заказать', 'оформить',
             'оптом', 'розница', 'стоимость', 'в наличии'
         ]
+        EXCLUDE_HTML = [
+            'tender', 'zakupka', 'zakupki', 'тендер', 'закупка'
+        ]
         links = []
         for lang in ['ru', 'en']:
             for item in search_results[lang].get('organic_results', []):
@@ -549,13 +553,18 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         filtered_links = []
         for url in links[:10]:
             html = await fetch_html(url)
-            if html and any(word in html.lower() for word in KEYWORDS):
+            if not html:
+                continue
+            html_lower = html.lower()
+            if any(ex in html_lower for ex in EXCLUDE_HTML):
+                continue
+            if any(word in html_lower for word in KEYWORDS):
                 filtered_links.append((url, html))
         if not filtered_links:
-            return "Не найдено сайтов с релевантной информацией (нет ключевых слов: цена, телефон, e-mail, опт, заказ, купить, заказать, оформить, оптом, розница, стоимость, в наличии)."
+            return "Не найдено сайтов с релевантной информацией (нет ключевых слов: цена, телефон, e-mail, опт, заказ, купить, заказать, оформить, оптом, розница, стоимость, в наличии, либо сайт содержит слова tender/zakupka/zakupki/тендер/закупка)."
         results = []
         client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
-        for url, html in filtered_links[:5]:
+        for url, html in filtered_links[:10]:
             prompt = f"""Вот страница сайта по запросу: {search_query}\n\n{html}\n---\nИзвлеки из этого текста:\n- Название компании\n- Цена\n- Телефон\n- Email\n- Сайт\nЕсли информации нет — напиши 'нет данных'."""
             try:
                 response = await client.chat.completions.create(

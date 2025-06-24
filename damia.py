@@ -152,6 +152,32 @@ class DamiaClient:
             
             # Источник финансирования (может отсутствовать в API)
             funding_source = 'Не указан'  # Это поле может отсутствовать в DaMIA API
+            
+            # Региональная информация
+            region = data.get('Регион', 'Не указан')
+            federal_law = data.get('ФЗ', 'Не указан')
+            
+            # Электронная торговая площадка
+            etp_info = data.get('ЭТП', {})
+            etp_name = etp_info.get('Наименование', 'Не указана') if etp_info else 'Не указана'
+            etp_url = etp_info.get('Url', 'Не указан') if etp_info else 'Не указан'
+            
+            # Контактная информация
+            contacts = data.get('Контакты', {})
+            contact_person = contacts.get('ОтвЛицо', 'Не указано') if contacts else 'Не указано'
+            contact_phone = contacts.get('Телефон', 'Не указан') if contacts else 'Не указан'
+            contact_email = contacts.get('Email', 'Не указан') if contacts else 'Не указан'
+            
+            # Финансовые детали
+            ikz = data.get('ИКЗ', 'Не указан')
+            advance_percent = data.get('АвансПроцент', 'Не указан')
+            
+            # Обеспечение исполнения контракта
+            execution_guarantee = data.get('ОбеспИсп', {})
+            execution_amount = execution_guarantee.get('Сумма', 'Не указана') if execution_guarantee else 'Не указана'
+            
+            # Банковское сопровождение
+            bank_support = data.get('БанкСопр', 'Не указано')
 
             return {
                 'customer': customer or 'Не указан',
@@ -169,6 +195,17 @@ class DamiaClient:
                 'delivery_terms': delivery_terms or 'Не указан',
                 'guarantee_amount': guarantee_amount or 'Не указана',
                 'funding_source': funding_source or 'Не указан',
+                'region': region or 'Не указан',
+                'federal_law': federal_law or 'Не указан',
+                'etp_name': etp_name or 'Не указана',
+                'etp_url': etp_url or 'Не указан',
+                'contact_person': contact_person or 'Не указано',
+                'contact_phone': contact_phone or 'Не указан',
+                'contact_email': contact_email or 'Не указан',
+                'ikz': ikz or 'Не указан',
+                'advance_percent': advance_percent or 'Не указан',
+                'execution_amount': execution_amount or 'Не указана',
+                'bank_support': bank_support or 'Не указано',
                 'raw_data': data
             }
         except Exception as e:
@@ -189,6 +226,17 @@ class DamiaClient:
                 'delivery_terms': 'Ошибка обработки',
                 'guarantee_amount': 'Ошибка обработки',
                 'funding_source': 'Ошибка обработки',
+                'region': 'Ошибка обработки',
+                'federal_law': 'Ошибка обработки',
+                'etp_name': 'Ошибка обработки',
+                'etp_url': 'Ошибка обработки',
+                'contact_person': 'Ошибка обработки',
+                'contact_phone': 'Ошибка обработки',
+                'contact_email': 'Ошибка обработки',
+                'ikz': 'Ошибка обработки',
+                'advance_percent': 'Ошибка обработки',
+                'execution_amount': 'Ошибка обработки',
+                'bank_support': 'Ошибка обработки',
                 'raw_data': data
             }
 

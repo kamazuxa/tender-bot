@@ -6,7 +6,7 @@ from telegram.ext import (
     ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler,
     CallbackQueryHandler, filters
 )
-from config import TELEGRAM_TOKEN, LOG_LEVEL, LOG_FILE
+from config import TELEGRAM_TOKEN, LOG_LEVEL, LOG_FILE, SERPAPI_KEY
 from damia import damia_client, extract_tender_number
 from downloader import downloader
 from analyzer import analyzer
@@ -14,6 +14,7 @@ import os
 import re
 import zipfile
 import tempfile
+from serpapi import GoogleSearch
 
 # Настройка логирования
 logging.basicConfig(
@@ -274,6 +275,10 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     await bot.send_message(chat_id=chat_id, text=f"🤖 **Продолжение анализа** (часть {i+1}/{len(parts)}):\n\n{part}", parse_mode='Markdown')
         else:
             await bot.send_message(chat_id=chat_id, text=f"🤖 **Анализ тендера:**\n\n{summary}", parse_mode='Markdown')
+        
+        # После анализа добавляем кнопку поиска поставщиков
+        keyboard = [[InlineKeyboardButton("🔎 Найти поставщиков", callback_data="find_suppliers")]]
+        await bot.send_message(chat_id=chat_id, text="Хотите найти поставщиков по товарным позициям?", reply_markup=InlineKeyboardMarkup(keyboard))
     
     async def _send_analysis(self, update: Update, analysis_result: dict) -> None:
         """Отправляет результаты анализа"""
@@ -473,6 +478,81 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             
             # Обновляем сообщение с новой страницей документов
             await self._update_documents_message(context.bot, query.message.chat_id, query.message.message_id, tender_data, reg_number, page)
+        elif query.data == "find_suppliers":
+            user_id = query.from_user.id
+            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
+                await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                return
+            tender_data = self.user_sessions[user_id]['tender_data']
+            product_info = tender_data.get('Продукт', {})
+            objects = product_info.get('ОбъектыЗак', [])
+            if not objects:
+                await query.edit_message_text("❌ Товарные позиции не найдены.")
+                return
+            # Показываем кнопки с позициями
+            keyboard = []
+            for idx, obj in enumerate(objects):
+                name = obj.get('Наименование', f'Позиция {idx+1}')
+                keyboard.append([InlineKeyboardButton(name, callback_data=f"find_supplier_{idx}")])
+            await query.edit_message_text("Выберите товарную позицию для поиска поставщиков:", reply_markup=InlineKeyboardMarkup(keyboard))
+        elif query.data.startswith("find_supplier_"):
+            user_id = query.from_user.id
+            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
+                await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                return
+            idx = int(query.data.split('_')[-1])
+            tender_data = self.user_sessions[user_id]['tender_data']
+            product_info = tender_data.get('Продукт', {})
+            objects = product_info.get('ОбъектыЗак', [])
+            if idx >= len(objects):
+                await query.edit_message_text("❌ Позиция не найдена.")
+                return
+            obj = objects[idx]
+            name = obj.get('Наименование', '')
+            quantity = obj.get('Количество', '')
+            await query.edit_message_text(f"🔎 Ищу поставщиков по позиции: {name} (нужно: {quantity})...")
+            search_results = await self._search_suppliers_serpapi(name)
+            gpt_result = await self._extract_suppliers_gpt(name, quantity, search_results)
+            await context.bot.send_message(chat_id=query.message.chat_id, text=f"<b>{name}</b> (нужно: {quantity}):\n{gpt_result}", parse_mode='HTML')
+    
+    async def _search_suppliers_serpapi(self, query):
+        from concurrent.futures import ThreadPoolExecutor
+        import asyncio
+        loop = asyncio.get_event_loop()
+        def search(lang):
+            params = {
+                "engine": "yandex",
+                "text": query,
+                "lang": lang,
+                "api_key": SERPAPI_KEY,
+                "num": 10
+            }
+            search = GoogleSearch(params)
+            return search.get_dict()
+        with ThreadPoolExecutor() as executor:
+            ru = await loop.run_in_executor(executor, search, 'ru')
+            en = await loop.run_in_executor(executor, search, 'en')
+        return {'ru': ru, 'en': en}
+
+    async def _extract_suppliers_gpt(self, name, quantity, search_results):
+        # Здесь должен быть ваш вызов OpenAI GPT (или другого ИИ)
+        # Пример промпта:
+        prompt = f"""
+        Вот результаты поиска поставщиков по товару: {name} (нужно: {quantity})
+        На русском:
+        {search_results['ru']}
+        На английском:
+        {search_results['en']}
+        ---
+        Извлеки из этого текста список поставщиков, цены, телефоны, сайты. Дай список в виде:
+        - Название: ...
+        - Цена: ...
+        - Телефон: ...
+        - Сайт: ...
+        """
+        # Здесь должен быть вызов вашей функции для общения с GPT, например:
+        # return await call_gpt(prompt)
+        return "[GPT-ответ: здесь будет список поставщиков]"
     
     async def _send_products_list_to_chat(self, bot, chat_id: int, tender_data: dict, page: int = 0, message_id: int = None) -> None:
         """Отправляет или обновляет список товарных позиций в чат с пагинацией"""

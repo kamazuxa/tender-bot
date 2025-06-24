@@ -6,7 +6,7 @@ from telegram.ext import (
     ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler,
     CallbackQueryHandler, filters
 )
-from config import TELEGRAM_TOKEN, LOG_LEVEL, LOG_FILE, SERPAPI_KEY
+from config import TELEGRAM_TOKEN, LOG_LEVEL, LOG_FILE, SERPAPI_KEY, OPENAI_API_KEY, OPENAI_MODEL
 from damia import damia_client, extract_tender_number
 from downloader import downloader
 from analyzer import analyzer
@@ -16,6 +16,7 @@ import zipfile
 import tempfile
 from serpapi import GoogleSearch
 import json
+import openai
 
 # Настройка логирования
 logging.basicConfig(
@@ -524,8 +525,6 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         return {'ru': ru, 'en': en}
 
     async def _extract_suppliers_gpt(self, name, quantity, search_results):
-        # Здесь должен быть ваш вызов OpenAI GPT (или другого ИИ)
-        # Пример промпта:
         prompt = f"""
         Вот результаты поиска поставщиков по товару: {name} (нужно: {quantity})
         На русском:
@@ -538,10 +537,21 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         - Цена: ...
         - Телефон: ...
         - Сайт: ...
+        Если информации нет — напиши 'нет данных'.
         """
-        # Здесь должен быть вызов вашей функции для общения с GPT, например:
-        # return await call_gpt(prompt)
-        return "[GPT-ответ: здесь будет список поставщиков]"
+        openai.api_key = OPENAI_API_KEY
+        try:
+            response = await openai.ChatCompletion.acreate(
+                model=OPENAI_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=800,
+                temperature=0.2,
+            )
+            answer = response['choices'][0]['message']['content']
+            return answer.strip()
+        except Exception as e:
+            logger.error(f"[bot] Ошибка OpenAI: {e}")
+            return "[Ошибка при обращении к GPT. Попробуйте позже.]"
     
     async def _send_products_list_to_chat(self, bot, chat_id: int, tender_data: dict, page: int = 0, message_id: int = None) -> None:
         """Отправляет или обновляет список товарных позиций в чат с пагинацией"""

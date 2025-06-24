@@ -11,6 +11,9 @@ from damia import damia_client, extract_tender_number
 from downloader import downloader
 from analyzer import analyzer
 import os
+import re
+import zipfile
+import tempfile
 
 # Настройка логирования
 logging.basicConfig(
@@ -22,6 +25,39 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+def format_price(price_raw):
+    """Форматирует цену с пробелами и заменяет валюту на 'рублей'"""
+    if isinstance(price_raw, str):
+        # Если строка, пробуем отделить число и валюту
+        parts = price_raw.split()
+        if parts and parts[0].replace('.', '', 1).isdigit():
+            num = float(parts[0]) if '.' in parts[0] else int(parts[0])
+            formatted = f"{num:,}".replace(",", " ")
+            return f"{formatted} рублей"
+        else:
+            # Если не удалось, возвращаем как есть
+            return price_raw
+    elif isinstance(price_raw, (int, float)):
+        return f"{price_raw:,}".replace(",", " ") + " рублей"
+    return str(price_raw)
+
+def format_date(date_str):
+    """Преобразует дату из формата YYYY-MM-DD в DD.MM.YYYY"""
+    try:
+        parts = date_str.split('-')
+        if len(parts) == 3:
+            return f"{parts[2]}.{parts[1]}.{parts[0]}"
+        return date_str
+    except Exception:
+        return date_str
+
+def format_phone(phone_raw):
+    """Форматирует телефон в вид +74959941031"""
+    digits = re.sub(r'\D', '', str(phone_raw))
+    if digits.startswith('7') and len(digits) == 11:
+        return f'+{digits}'
+    return phone_raw
 
 class TenderBot:
     def __init__(self):
@@ -201,13 +237,14 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
 📋 **Информация о закупке**
 
 📊 **Статус:** {tender_info['status']}
+📋 **Федеральный закон:** {tender_info['federal_law']}-ФЗ
 🏢 **Заказчик:** {tender_info['customer']}
 📝 **ИНН:** {tender_info['customer_inn']}
 📍 **Адрес:** {tender_info['customer_address']}
 📄 **Предмет поставки:** {tender_info['subject']}
-💰 **Цена:** {tender_info['price']}
-📅 **Дата публикации:** {tender_info['publication_date']}
-⏰ **Срок подачи до:** {tender_info['submission_deadline']}
+💰 **Цена:** {format_price(tender_info['price'])}
+📅 **Дата публикации:** {format_date(tender_info['publication_date'])}
+⏰ **Срок подачи до:** {format_date(tender_info['submission_deadline'])}
 
 📍 **Место поставки:** {tender_info['delivery_place']}
         """
@@ -266,33 +303,19 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         elif query.data.startswith("products_"):
             reg_number = query.data.split("_")[1]
             user_id = query.from_user.id
-            
-            # Проверяем, есть ли данные тендера в сессии
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
-            
-            # Получаем данные из сессии
             tender_data = self.user_sessions[user_id]['tender_data']
-            
-            # Отправляем товарные позиции (первая страница)
             await self._send_products_list_to_chat(context.bot, query.message.chat_id, tender_data, page=0)
-            
         elif query.data.startswith("products_page_"):
             page = int(query.data.split("_")[2])
             user_id = query.from_user.id
-            
-            # Проверяем, есть ли данные тендера в сессии
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
-            
-            # Получаем данные из сессии
             tender_data = self.user_sessions[user_id]['tender_data']
-            
-            # Обновляем сообщение с новой страницей
-            await self._update_products_message(context.bot, query.message.chat_id, query.message.message_id, tender_data, page)
-            
+            await self._send_products_list_to_chat(context.bot, query.message.chat_id, tender_data, page=page, message_id=query.message.message_id)
         elif query.data == "current_page":
             # Просто отвечаем на callback без изменений
             await query.answer("Текущая страница")
@@ -347,36 +370,23 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 await context.bot.send_message(chat_id=query.message.chat_id, text="📥 Скачиваю документы...")
                 download_result = await downloader.download_documents(tender_data, reg_number)
                 
-                if download_result['success'] > 0:
-                    await context.bot.send_message(
-                        chat_id=query.message.chat_id,
-                        text=f"✅ Скачано документов: {download_result['success']}\n❌ Не удалось скачать: {download_result['failed']}"
-                    )
-                    
-                    # Отправляем файлы пользователю
-                    if download_result['files']:
-                        await context.bot.send_message(chat_id=query.message.chat_id, text="📤 Отправляю файлы...")
-                        
-                        for file_path in download_result['files'][:10]:  # Ограничиваем 10 файлами
-                            try:
-                                with open(file_path, 'rb') as file:
-                                    filename = os.path.basename(file_path)
-                                    await context.bot.send_document(
-                                        chat_id=query.message.chat_id,
-                                        document=file,
-                                        filename=filename
-                                    )
-                            except Exception as e:
-                                logger.error(f"[bot] Ошибка отправки файла {file_path}: {e}")
-                                continue
-                        
-                        if len(download_result['files']) > 10:
-                            await context.bot.send_message(
+                if download_result['success'] > 0 and download_result['files']:
+                    # Создаем временный архив
+                    with tempfile.TemporaryDirectory() as tmpdir:
+                        zip_path = os.path.join(tmpdir, f"tender_{reg_number}.zip")
+                        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                            for file_path in download_result['files']:
+                                arcname = os.path.basename(file_path)
+                                zipf.write(file_path, arcname=arcname)
+                        # Отправляем архив пользователю
+                        with open(zip_path, 'rb') as zipfile_obj:
+                            await context.bot.send_document(
                                 chat_id=query.message.chat_id,
-                                text=f"📤 Отправлено 10 файлов из {len(download_result['files'])}. Остальные файлы сохранены на сервере."
+                                document=zipfile_obj,
+                                filename=f"tender_{reg_number}.zip",
+                                caption=f"Все документы по тендеру {reg_number}"
                             )
-                    else:
-                        await context.bot.send_message(chat_id=query.message.chat_id, text="⚠️ Файлы не найдены")
+                    await context.bot.send_message(chat_id=query.message.chat_id, text="✅ Все документы отправлены архивом.")
                 else:
                     await context.bot.send_message(chat_id=query.message.chat_id, text="⚠️ Не удалось скачать документы")
                 
@@ -453,8 +463,8 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             # Обновляем сообщение с новой страницей документов
             await self._update_documents_message(context.bot, query.message.chat_id, query.message.message_id, tender_data, reg_number, page)
     
-    async def _send_products_list_to_chat(self, bot, chat_id: int, tender_data: dict, page: int = 0) -> None:
-        """Отправляет список товарных позиций в чат с пагинацией"""
+    async def _send_products_list_to_chat(self, bot, chat_id: int, tender_data: dict, page: int = 0, message_id: int = None) -> None:
+        """Отправляет или обновляет список товарных позиций в чат с пагинацией"""
         # Если данные содержат номер тендера как ключ, извлекаем данные из внутреннего объекта
         if len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
             tender_data = list(tender_data.values())[0]
@@ -484,23 +494,26 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             cost = obj.get('Стоимость', 0)
             okpd = obj.get('ОКПД', '')
             additional_info = obj.get('ДопИнфо', '')
+            date = obj.get('Дата', '')
             
             products_text += f"{i}. **{name}**\n"
             products_text += f"   📊 Количество: {quantity} {unit}\n"
-            products_text += f"   💰 Цена за ед.: {price} ₽\n"
-            products_text += f"   💵 Стоимость: {cost} ₽\n"
+            products_text += f"   💰 Цена за ед.: {format_price(price)}\n"
+            products_text += f"   💵 Стоимость: {format_price(cost)}\n"
             if okpd:
                 products_text += f"   🏷️ ОКПД: {okpd}\n"
             if additional_info:
                 short_info = additional_info[:80] + "..." if len(additional_info) > 80 else additional_info
                 products_text += f"   ℹ️ Доп. инфо: {short_info}\n"
+            if date:
+                products_text += f"   📅 Дата: {format_date(date)}\n"
             products_text += "\n"
             
             total_cost += cost
         
         # Добавляем общую стоимость всех позиций
         total_all_cost = sum(obj.get('Стоимость', 0) for obj in objects)
-        products_text += f"**Общая стоимость всех позиций: {total_all_cost} ₽**"
+        products_text += f"**Общая стоимость всех позиций: {format_price(total_all_cost)}**"
         
         # Создаем кнопки навигации
         keyboard = []
@@ -520,86 +533,16 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         
         reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
         
-        await bot.send_message(chat_id=chat_id, text=products_text, parse_mode='Markdown', reply_markup=reply_markup)
-    
-    async def _update_products_message(self, bot, chat_id: int, message_id: int, tender_data: dict, page: int) -> None:
-        """Обновляет сообщение с товарными позициями для пагинации"""
-        # Если данные содержат номер тендера как ключ, извлекаем данные из внутреннего объекта
-        if len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
-            tender_data = list(tender_data.values())[0]
-        
-        product_info = tender_data.get('Продукт', {})
-        objects = product_info.get('ОбъектыЗак', [])
-        
-        if not objects:
+        if message_id is not None:
             await bot.edit_message_text(
-                chat_id=chat_id, 
-                message_id=message_id, 
-                text="📦 Товарные позиции не найдены"
+                chat_id=chat_id,
+                message_id=message_id,
+                text=products_text,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
             )
-            return
-        
-        # Настройки пагинации
-        items_per_page = 5
-        total_pages = (len(objects) + items_per_page - 1) // items_per_page
-        start_idx = page * items_per_page
-        end_idx = min(start_idx + items_per_page, len(objects))
-        
-        # Создаем список товарных позиций для текущей страницы
-        products_text = f"📦 **Товарные позиции** (страница {page + 1} из {total_pages}):\n\n"
-        
-        total_cost = 0
-        for i, obj in enumerate(objects[start_idx:end_idx], start_idx + 1):
-            name = obj.get('Наименование', 'Без названия')
-            quantity = obj.get('Количество', 0)
-            unit = obj.get('ЕдИзм', 'шт')
-            price = obj.get('ЦенаЕд', 0)
-            cost = obj.get('Стоимость', 0)
-            okpd = obj.get('ОКПД', '')
-            additional_info = obj.get('ДопИнфо', '')
-            
-            products_text += f"{i}. **{name}**\n"
-            products_text += f"   📊 Количество: {quantity} {unit}\n"
-            products_text += f"   💰 Цена за ед.: {price} ₽\n"
-            products_text += f"   💵 Стоимость: {cost} ₽\n"
-            if okpd:
-                products_text += f"   🏷️ ОКПД: {okpd}\n"
-            if additional_info:
-                short_info = additional_info[:80] + "..." if len(additional_info) > 80 else additional_info
-                products_text += f"   ℹ️ Доп. инфо: {short_info}\n"
-            products_text += "\n"
-            
-            total_cost += cost
-        
-        # Добавляем общую стоимость всех позиций
-        total_all_cost = sum(obj.get('Стоимость', 0) for obj in objects)
-        products_text += f"**Общая стоимость всех позиций: {total_all_cost} ₽**"
-        
-        # Создаем кнопки навигации
-        keyboard = []
-        nav_buttons = []
-        
-        if total_pages > 1:
-            if page > 0:
-                nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"products_page_{page-1}"))
-            
-            nav_buttons.append(InlineKeyboardButton(f"{page + 1}/{total_pages}", callback_data="current_page"))
-            
-            if page < total_pages - 1:
-                nav_buttons.append(InlineKeyboardButton("Вперед ➡️", callback_data=f"products_page_{page+1}"))
-            
-            if nav_buttons:
-                keyboard.append(nav_buttons)
-        
-        reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-        
-        await bot.edit_message_text(
-            chat_id=chat_id,
-            message_id=message_id,
-            text=products_text,
-            parse_mode='Markdown',
-            reply_markup=reply_markup
-        )
+        else:
+            await bot.send_message(chat_id=chat_id, text=products_text, parse_mode='Markdown', reply_markup=reply_markup)
     
     async def _send_documents_list_with_download(self, bot, chat_id: int, tender_data: dict, reg_number: str, page: int = 0) -> None:
         """Отправляет список документов с возможностью скачивания и пагинацией"""
@@ -629,7 +572,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             
             docs_text += f"{i}. **{name}**\n"
             if date:
-                docs_text += f"   📅 Дата: {date}\n"
+                docs_text += f"   📅 Дата: {format_date(date)}\n"
             if files:
                 docs_text += f"   📎 Файлов: {len(files)}\n"
             docs_text += "\n"
@@ -682,7 +625,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
 
 📞 **Контактная информация:**
 • **Ответственное лицо:** {tender_info['contact_person']}
-• **Телефон:** {tender_info['contact_phone']}
+• **Телефон:** {format_phone(tender_info['contact_phone'])}
 • **Email:** {tender_info['contact_email']}
 
 💳 **Финансовые детали:**
@@ -726,7 +669,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             
             docs_text += f"{i}. **{name}**\n"
             if date:
-                docs_text += f"   📅 Дата: {date}\n"
+                docs_text += f"   📅 Дата: {format_date(date)}\n"
             if files:
                 docs_text += f"   📎 Файлов: {len(files)}\n"
             docs_text += "\n"

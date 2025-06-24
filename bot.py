@@ -480,7 +480,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             await self._update_documents_message(context.bot, query.message.chat_id, query.message.message_id, tender_data, reg_number, page)
         elif query.data == "find_suppliers":
             user_id = query.from_user.id
-            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
+            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
             tender_data = self.user_sessions[user_id]['tender_data']
@@ -497,7 +497,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             await query.edit_message_text("Выберите товарную позицию для поиска поставщиков:", reply_markup=InlineKeyboardMarkup(keyboard))
         elif query.data.startswith("find_supplier_"):
             user_id = query.from_user.id
-            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
+            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
             idx = int(query.data.split('_')[-1])

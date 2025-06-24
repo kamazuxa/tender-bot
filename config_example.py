@@ -29,4 +29,7 @@ VPN_INTERFACE = os.getenv('VPN_INTERFACE', 'wg0')
 
 # Настройки подписки (для будущего развития)
 TRIAL_DAYS = 7
-SUBSCRIPTION_PRICE = 999  # рублей в месяц 
+SUBSCRIPTION_PRICE = 999  # рублей в месяц
+
+# SerpAPI ключ для поиска поставщиков
+SERPAPI_KEY = "your_serpapi_key_here"  # <-- вставьте сюда свой ключ 

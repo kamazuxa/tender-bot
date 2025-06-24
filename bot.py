@@ -589,14 +589,10 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         return {'ru': ru, 'en': en}
 
     async def _extract_suppliers_gpt_ranked(self, search_query, search_results):
-        # Авторанжирование ссылок по наличию ключевых слов до передачи в GPT
+        # Фильтрация только по доменам и стоп-словам, без ключевых слов
         if not httpx or not BeautifulSoup:
             return ("Для поиска поставщиков необходимо установить зависимости: httpx и beautifulsoup4.\n"
                     "Выполните команду: pip install httpx beautifulsoup4")
-        KEYWORDS = [
-            'цена', 'телефон', 'e-mail', 'опт', 'заказ', 'купить', 'заказать', 'оформить',
-            'оптом', 'розница', 'стоимость', 'в наличии'
-        ]
         EXCLUDE_HTML = [
             'tender', 'zakupka', 'zakupki', 'тендер', 'закупка'
         ]
@@ -616,10 +612,9 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             html_lower = html.lower()
             if any(ex in html_lower for ex in EXCLUDE_HTML):
                 continue
-            if any(word in html_lower for word in KEYWORDS):
-                filtered_links.append((url, html))
+            filtered_links.append((url, html))
         if not filtered_links:
-            return "Не найдено сайтов с релевантной информацией (нет ключевых слов: цена, телефон, e-mail, опт, заказ, купить, заказать, оформить, оптом, розница, стоимость, в наличии, либо сайт содержит слова tender/zakupka/zakupki/тендер/закупка)."
+            return "Не найдено сайтов с релевантной информацией (сайт содержит слова tender/zakupka/zakupki/тендер/закупка)."
         results = []
         client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
         for url, html in filtered_links[:10]:

@@ -184,6 +184,9 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             # Отправляем основную информацию
             await self._send_tender_info(update, formatted_info, reg_number)
             
+            # Отправляем список товарных позиций
+            await self._send_products_list(update, tender_data)
+            
             # Отправляем список документов
             await self._send_documents_list(update, tender_data)
             
@@ -196,6 +199,40 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 "❌ Произошла ошибка при обработке запроса.\n"
                 "Попробуйте позже или обратитесь к администратору."
             )
+    
+    async def _send_products_list(self, update: Update, tender_data: dict) -> None:
+        """Отправляет список товарных позиций тендера"""
+        product_info = tender_data.get('Продукт', {})
+        objects = product_info.get('ОбъектыЗак', [])
+        
+        if not objects:
+            await update.message.reply_text("📦 Товарные позиции не найдены")
+            return
+        
+        # Создаем список товарных позиций
+        products_text = "📦 **Товарные позиции:**\n\n"
+        
+        total_cost = 0
+        for i, obj in enumerate(objects[:8], 1):  # Показываем первые 8 позиций
+            name = obj.get('Наименование', 'Без названия')
+            quantity = obj.get('Количество', 0)
+            unit = obj.get('ЕдИзм', 'шт')
+            price = obj.get('ЦенаЕд', 0)
+            cost = obj.get('Стоимость', 0)
+            
+            products_text += f"{i}. **{name}**\n"
+            products_text += f"   📊 Количество: {quantity} {unit}\n"
+            products_text += f"   💰 Цена за ед.: {price} ₽\n"
+            products_text += f"   💵 Стоимость: {cost} ₽\n\n"
+            
+            total_cost += cost
+        
+        if len(objects) > 8:
+            products_text += f"... и еще {len(objects) - 8} позиций\n\n"
+        
+        products_text += f"**Общая стоимость позиций: {total_cost} ₽**"
+        
+        await update.message.reply_text(products_text, parse_mode='Markdown')
     
     async def _send_documents_list(self, update: Update, tender_data: dict) -> None:
         """Отправляет список документов тендера"""
@@ -210,8 +247,15 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         
         for i, doc in enumerate(documents[:10], 1):  # Показываем первые 10 документов
             name = doc.get('Название', 'Без названия')
-            size = doc.get('Размер', 'Не указан')
-            docs_text += f"{i}. **{name}**\n   📏 Размер: {size}\n\n"
+            date = doc.get('ДатаРазм', '')
+            files = doc.get('Файлы', [])
+            
+            docs_text += f"{i}. **{name}**\n"
+            if date:
+                docs_text += f"   📅 Дата: {date}\n"
+            if files:
+                docs_text += f"   📎 Файлов: {len(files)}\n"
+            docs_text += "\n"
         
         if len(documents) > 10:
             docs_text += f"... и еще {len(documents) - 10} документов"

@@ -40,7 +40,8 @@ logger = logging.getLogger(__name__)
 
 EXCLUDE_DOMAINS = [
     "avito.ru", "wildberries.ru", "ozon.ru", "market.yandex.ru", "lavka.yandex.ru",
-    "beru.ru", "goods.ru", "tmall.ru", "aliexpress.ru"
+    "beru.ru", "goods.ru", "tmall.ru", "aliexpress.ru",
+    "youtube.com", "youtu.be", "rutube.ru"
 ]
 
 def is_good_domain(url):
@@ -316,7 +317,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
             for idx, obj in enumerate(objects):
                 name = obj.get('Наименование', '')
-                prompt = f"Сформируй поисковую фразу для поиска поставщика по товару: {name}. Укажи только саму фразу, без пояснений." 
+                prompt = f"Сформируй поисковую фразу для поиска поставщика по товару: {name}. Укажи только саму фразу, без пояснений."
                 try:
                     response = await client.chat.completions.create(
                         model=OPENAI_MODEL,
@@ -329,6 +330,8 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 except Exception as e:
                     logger.error(f"[bot] Ошибка генерации поискового запроса для позиции {name}: {e}")
                     search_queries[idx] = name  # fallback
+        # ЯВНОЕ ЛОГИРОВАНИЕ поисковых запросов для SerpAPI
+        logger.info(f"[bot] Поисковые запросы для SerpAPI: {search_queries}")
         # Сохраняем поисковые запросы в сессию пользователя
         for user_id, session in self.user_sessions.items():
             if session.get('status') in ['ready_for_analysis', 'completed']:
@@ -594,7 +597,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             return ("Для поиска поставщиков необходимо установить зависимости: httpx и beautifulsoup4.\n"
                     "Выполните команду: pip install httpx beautifulsoup4")
         EXCLUDE_HTML = [
-            'tender', 'zakupka', 'zakupki', 'тендер', 'закупка'
+            'tender', 'zakupka', 'zakupki', 'тендер', 'закупка', 'видео'
         ]
         links = []
         for lang in ['ru', 'en']:
@@ -606,6 +609,10 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             return "В поисковой выдаче не найдено подходящих сайтов (все ссылки — маркетплейсы или агрегаторы)."
         filtered_links = []
         for url in links[:10]:
+            # Фильтрация по домену (YouTube, Rutube и др.)
+            netloc = urlparse(url).netloc.lower()
+            if any(domain in netloc for domain in EXCLUDE_DOMAINS):
+                continue
             html = await fetch_html(url)
             if not html:
                 continue
@@ -614,7 +621,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 continue
             filtered_links.append((url, html))
         if not filtered_links:
-            return "Не найдено сайтов с релевантной информацией (сайт содержит слова tender/zakupka/zakupki/тендер/закупка)."
+            return "Не найдено сайтов с релевантной информацией (сайт содержит слова tender/zakupka/zakupki/тендер/закупка/видео)."
         results = []
         client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
         for url, html in filtered_links[:10]:

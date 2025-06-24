@@ -514,7 +514,11 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             for idx, obj in enumerate(objects):
                 name = obj.get('Наименование', f'Позиция {idx+1}')
                 keyboard.append([InlineKeyboardButton(name, callback_data=f"find_supplier_{idx}")])
-            await query.edit_message_text("Выберите товарную позицию для поиска поставщиков:", reply_markup=InlineKeyboardMarkup(keyboard))
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text="Выберите товарную позицию для поиска поставщиков:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
         elif query.data.startswith("find_supplier_"):
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
@@ -557,16 +561,21 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         return {'ru': ru, 'en': en}
 
     async def _extract_suppliers_gpt(self, name, quantity, search_results):
+        if not httpx or not BeautifulSoup:
+            return ("Для поиска поставщиков необходимо установить зависимости: httpx и beautifulsoup4.\n"
+                    "Выполните команду: pip install httpx beautifulsoup4")
         links = []
         for lang in ['ru', 'en']:
             for item in search_results[lang].get('organic_results', []):
                 url = item.get('link') or item.get('url')
                 if url and is_good_domain(url):
                     links.append(url)
-        results = []
+        if not links:
+            return "В поисковой выдаче не найдено подходящих сайтов (все ссылки — маркетплейсы или агрегаторы)."
+        results = [f"Пробую сайты:\n" + '\n'.join(links[:7])]
         client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
-        for url in links[:3]:  # Ограничим 3 сайтами для скорости
-            html = await fetch_html(url) if httpx and BeautifulSoup else None
+        for url in links[:7]:  # Увеличили лимит до 7
+            html = await fetch_html(url)
             if html:
                 prompt = f"""Вот страница сайта по товару: {name} (нужно: {quantity})\n\n{html}\n---\nИзвлеки из этого текста:\n- Название компании\n- Цена\n- Телефон\n- Email\n- Сайт\nЕсли информации нет — напиши 'нет данных'."""
                 try:
@@ -581,7 +590,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 except Exception as e:
                     logger.error(f"[bot] Ошибка OpenAI: {e}")
                     results.append(f"<b>Сайт:</b> {url}\n[Ошибка при обращении к GPT]")
-        if not results:
+        if len(results) == 1:
             return "Не удалось найти подходящие сайты с контактами поставщиков."
         return "\n\n".join(results)
     

@@ -299,6 +299,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         """Обработчик callback запросов"""
         query = update.callback_query
         await query.answer()
+        user_id = query.from_user.id  # Теперь user_id всегда определён
         
         if query.data == "help":
             await self.help_command(update, context)
@@ -306,7 +307,6 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             await self.status_command(update, context)
         elif query.data.startswith("products_") and not query.data.startswith("products_page_"):
             reg_number = query.data.split("_")[1]
-            user_id = query.from_user.id
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
@@ -322,7 +322,6 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 page = int(query.data.split("_")[2])
             except Exception:
                 page = 0
-            user_id = query.from_user.id
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
@@ -335,9 +334,6 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             
         elif query.data.startswith("documents_"):
             reg_number = query.data.split("_")[1]
-            user_id = query.from_user.id
-            
-            # Проверяем, есть ли данные тендера в сессии
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
@@ -350,9 +346,6 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             
         elif query.data.startswith("details_"):
             reg_number = query.data.split("_")[1]
-            user_id = query.from_user.id
-            
-            # Проверяем, есть ли данные тендера в сессии
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
@@ -365,9 +358,6 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             
         elif query.data.startswith("download_"):
             reg_number = query.data.split("_")[1]
-            user_id = query.from_user.id
-            
-            # Проверяем, есть ли данные тендера в сессии
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
@@ -414,9 +404,6 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             
         elif query.data.startswith("analyze_"):
             reg_number = query.data.split("_")[1]
-            user_id = query.from_user.id
-            
-            # Проверяем, есть ли данные тендера в сессии
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
@@ -465,9 +452,6 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             parts = query.data.split("_")
             reg_number = parts[2]
             page = int(parts[3])
-            user_id = query.from_user.id
-            
-            # Проверяем, есть ли данные тендера в сессии
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return

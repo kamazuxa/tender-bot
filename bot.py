@@ -70,7 +70,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
 📋 **Справка по использованию TenderBot**
 
 **Основные функции:**
-• Автоматическое получение данных о тендерах через API DaMIA
+• Автоматическое получение данных о тендерах
 • Скачивание документов тендера (техзадание, условия и т.д.)
 • ИИ-анализ документов с помощью OpenAI GPT
 • Структурированный отчет с рекомендациями
@@ -177,33 +177,18 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             # Форматируем информацию о тендере
             formatted_info = damia_client.format_tender_info(tender_data)
             
+            # Сохраняем данные тендера в сессии для последующего анализа
+            self.user_sessions[user.id]['tender_data'] = tender_data
+            self.user_sessions[user.id]['formatted_info'] = formatted_info
+            
             # Отправляем основную информацию
             await self._send_tender_info(update, formatted_info, reg_number)
             
-            # Скачиваем документы
-            await update.message.reply_text("📥 Скачиваю документы...")
-            download_result = await downloader.download_documents(tender_data, reg_number)
-            
-            if download_result['success'] > 0:
-                await update.message.reply_text(
-                    f"✅ Скачано документов: {download_result['success']}\n"
-                    f"❌ Не удалось скачать: {download_result['failed']}"
-                )
-                
-                # Анализируем документы
-                if download_result['files']:
-                    await update.message.reply_text("🤖 Анализирую документы с помощью ИИ...")
-                    analysis_result = await analyzer.analyze_tender_documents(formatted_info, download_result['files'])
-                    
-                    # Отправляем анализ
-                    await self._send_analysis(update, analysis_result)
-                else:
-                    await update.message.reply_text("⚠️ Документы не найдены для анализа")
-            else:
-                await update.message.reply_text("⚠️ Не удалось скачать документы для анализа")
+            # Отправляем список документов
+            await self._send_documents_list(update, tender_data)
             
             # Обновляем статус сессии
-            self.user_sessions[user.id]['status'] = 'completed'
+            self.user_sessions[user.id]['status'] = 'ready_for_analysis'
             
         except Exception as e:
             logger.error(f"[bot] Ошибка обработки сообщения: {e}")
@@ -212,6 +197,27 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 "Попробуйте позже или обратитесь к администратору."
             )
     
+    async def _send_documents_list(self, update: Update, tender_data: dict) -> None:
+        """Отправляет список документов тендера"""
+        documents = tender_data.get('Документы', [])
+        
+        if not documents:
+            await update.message.reply_text("📄 Документы не найдены")
+            return
+        
+        # Создаем список документов
+        docs_text = "📄 **Документы тендера:**\n\n"
+        
+        for i, doc in enumerate(documents[:10], 1):  # Показываем первые 10 документов
+            name = doc.get('Название', 'Без названия')
+            size = doc.get('Размер', 'Не указан')
+            docs_text += f"{i}. **{name}**\n   📏 Размер: {size}\n\n"
+        
+        if len(documents) > 10:
+            docs_text += f"... и еще {len(documents) - 10} документов"
+        
+        await update.message.reply_text(docs_text, parse_mode='Markdown')
+    
     async def _send_tender_info(self, update: Update, tender_info: dict, reg_number: str) -> None:
         """Отправляет информацию о тендере"""
         info_text = f"""
@@ -219,12 +225,22 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
 
 🔢 **Номер:** `{reg_number}`
 🏢 **Заказчик:** {tender_info['customer']}
+📝 **ИНН:** {tender_info['customer_inn']}
+📍 **Адрес:** {tender_info['customer_address']}
 📄 **Предмет:** {tender_info['subject']}
 💰 **Цена:** {tender_info['price']}
 📅 **Дата публикации:** {tender_info['publication_date']}
 ⏰ **Срок подачи:** {tender_info['submission_deadline']}
 📊 **Статус:** {tender_info['status']}
 📎 **Документов:** {tender_info['document_count']}
+
+🔍 **Детали закупки:**
+• **Тип закупки:** {tender_info['procurement_type']}
+• **Способ закупки:** {tender_info['procurement_method']}
+• **Место поставки:** {tender_info['delivery_place']}
+• **Срок поставки:** {tender_info['delivery_terms']}
+• **Обеспечение заявки:** {tender_info['guarantee_amount']}
+• **Источник финансирования:** {tender_info['funding_source']}
         """
         
         keyboard = [
@@ -233,6 +249,22 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_text(info_text, parse_mode='Markdown', reply_markup=reply_markup)
+    
+    async def _send_analysis_to_chat(self, bot, chat_id: int, analysis_result: dict) -> None:
+        """Отправляет результаты анализа в чат по chat_id"""
+        overall = analysis_result.get('overall_analysis', {})
+        summary = overall.get('summary', 'Анализ недоступен')
+        
+        # Разбиваем длинный анализ на части
+        if len(summary) > 4000:
+            parts = [summary[i:i+4000] for i in range(0, len(summary), 4000)]
+            for i, part in enumerate(parts):
+                if i == 0:
+                    await bot.send_message(chat_id=chat_id, text=f"🤖 **Анализ тендера** (часть {i+1}/{len(parts)}):\n\n{part}", parse_mode='Markdown')
+                else:
+                    await bot.send_message(chat_id=chat_id, text=f"🤖 **Продолжение анализа** (часть {i+1}/{len(parts)}):\n\n{part}", parse_mode='Markdown')
+        else:
+            await bot.send_message(chat_id=chat_id, text=f"🤖 **Анализ тендера:**\n\n{summary}", parse_mode='Markdown')
     
     async def _send_analysis(self, update: Update, analysis_result: dict) -> None:
         """Отправляет результаты анализа"""
@@ -261,7 +293,52 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             await self.status_command(update, context)
         elif query.data.startswith("analyze_"):
             reg_number = query.data.split("_")[1]
-            await query.edit_message_text(f"🔍 Анализ для тендера {reg_number} уже выполнен выше")
+            user_id = query.from_user.id
+            
+            # Проверяем, есть ли данные тендера в сессии
+            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
+                await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                return
+            
+            # Получаем данные из сессии
+            tender_data = self.user_sessions[user_id]['tender_data']
+            formatted_info = self.user_sessions[user_id]['formatted_info']
+            
+            try:
+                # Обновляем статус кнопки
+                await query.edit_message_reply_markup(reply_markup=None)
+                
+                # Скачиваем документы
+                await context.bot.send_message(chat_id=query.message.chat_id, text="📥 Скачиваю документы...")
+                download_result = await downloader.download_documents(tender_data, reg_number)
+                
+                if download_result['success'] > 0:
+                    await context.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text=f"✅ Скачано документов: {download_result['success']}\n❌ Не удалось скачать: {download_result['failed']}"
+                    )
+                    
+                    # Анализируем документы
+                    if download_result['files']:
+                        await context.bot.send_message(chat_id=query.message.chat_id, text="🤖 Анализирую документы с помощью ИИ...")
+                        analysis_result = await analyzer.analyze_tender_documents(formatted_info, download_result['files'])
+                        
+                        # Отправляем анализ
+                        await self._send_analysis_to_chat(context.bot, query.message.chat_id, analysis_result)
+                    else:
+                        await context.bot.send_message(chat_id=query.message.chat_id, text="⚠️ Документы не найдены для анализа")
+                else:
+                    await context.bot.send_message(chat_id=query.message.chat_id, text="⚠️ Не удалось скачать документы для анализа")
+                
+                # Обновляем статус сессии
+                self.user_sessions[user_id]['status'] = 'completed'
+                
+            except Exception as e:
+                logger.error(f"[bot] Ошибка анализа тендера {reg_number}: {e}")
+                await context.bot.send_message(
+                    chat_id=query.message.chat_id,
+                    text="❌ Произошла ошибка при анализе тендера. Попробуйте позже."
+                )
     
     def setup_handlers(self):
         """Настраивает обработчики команд и сообщений"""

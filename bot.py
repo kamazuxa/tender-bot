@@ -292,7 +292,6 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         await update.message.reply_text(info_text, parse_mode='Markdown', reply_markup=reply_markup)
     
     async def _send_analysis_to_chat(self, bot, chat_id: int, analysis_result: dict) -> None:
-        """Отправляет результаты анализа в чат по chat_id"""
         overall = analysis_result.get('overall_analysis', {})
         summary = overall.get('summary', 'Анализ недоступен')
         
@@ -307,6 +306,33 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         else:
             await bot.send_message(chat_id=chat_id, text=f"🤖 **Анализ тендера:**\n\n{summary}", parse_mode='Markdown')
         
+        # После анализа генерируем поисковые запросы для каждой товарной позиции
+        tender_data = analysis_result.get('raw_data') or overall.get('raw_data')
+        product_info = tender_data.get('Продукт', {}) if tender_data else {}
+        objects = product_info.get('ОбъектыЗак', [])
+        # Генерируем поисковые запросы для каждой позиции через GPT
+        search_queries = {}
+        if objects:
+            client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
+            for idx, obj in enumerate(objects):
+                name = obj.get('Наименование', '')
+                prompt = f"Сформируй поисковую фразу для поиска поставщика по товару: {name}. Укажи только саму фразу, без пояснений." 
+                try:
+                    response = await client.chat.completions.create(
+                        model=OPENAI_MODEL,
+                        messages=[{"role": "user", "content": prompt}],
+                        max_tokens=50,
+                        temperature=0.2,
+                    )
+                    phrase = response.choices[0].message.content.strip()
+                    search_queries[idx] = phrase
+                except Exception as e:
+                    logger.error(f"[bot] Ошибка генерации поискового запроса для позиции {name}: {e}")
+                    search_queries[idx] = name  # fallback
+        # Сохраняем поисковые запросы в сессию пользователя
+        for user_id, session in self.user_sessions.items():
+            if session.get('status') in ['ready_for_analysis', 'completed']:
+                session['search_queries'] = search_queries
         # После анализа добавляем кнопку поиска поставщиков
         keyboard = [[InlineKeyboardButton("🔎 Найти поставщиков", callback_data="find_suppliers")]]
         await bot.send_message(chat_id=chat_id, text="Хотите найти поставщиков по результатам анализа?", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -337,6 +363,8 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             await self.help_command(update, context)
         elif query.data == "status":
             await self.status_command(update, context)
+        elif query.data == "cleanup":
+            await self.cleanup_command(update, context)
         elif query.data.startswith("products_") and not query.data.startswith("products_page_"):
             reg_number = query.data.split("_")[1]
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
@@ -494,22 +522,52 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             # Обновляем сообщение с новой страницей документов
             await self._update_documents_message(context.bot, query.message.chat_id, query.message.message_id, tender_data, reg_number, page)
         elif query.data == "find_suppliers":
-            # После анализа: формируем поисковые запросы и ищем поставщиков
+            # После анализа: выводим кнопки по всем товарным позициям
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
             tender_data = self.user_sessions[user_id]['tender_data']
-            formatted_info = self.user_sessions[user_id]['formatted_info']
-            # 1. Краткое резюме
-            await context.bot.send_message(chat_id=query.message.chat_id, text=f"🤖 Краткое резюме по тендеру:\n{formatted_info['subject']}\n{formatted_info['summary'] if 'summary' in formatted_info else ''}")
-            # 2. Генерируем поисковые запросы для SerpAPI на основе анализа
-            search_queries = await self._generate_supplier_queries(formatted_info)
-            logger.info(f"[bot] Поисковые запросы для SerpAPI: {search_queries}")
-            for search_query in search_queries:
-                await context.bot.send_message(chat_id=query.message.chat_id, text=f"🔎 Поиск поставщиков по запросу: {search_query}")
-                search_results = await self._search_suppliers_serpapi(search_query)
-                gpt_result = await self._extract_suppliers_gpt_ranked(search_query, search_results)
-                await context.bot.send_message(chat_id=query.message.chat_id, text=gpt_result, parse_mode='HTML')
+            # Универсальный способ извлечения товарных позиций
+            if len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
+                tender_data = list(tender_data.values())[0]
+            product_info = tender_data.get('Продукт', {})
+            objects = product_info.get('ОбъектыЗак', [])
+            if not objects:
+                await query.edit_message_text("В этом тендере отсутствуют товарные позиции. Возможно, это закупка услуг или данные не заполнены.")
+                return
+            # Показываем кнопки с позициями
+            keyboard = []
+            for idx, obj in enumerate(objects):
+                name = obj.get('Наименование', f'Позиция {idx+1}')
+                keyboard.append([InlineKeyboardButton(name, callback_data=f"find_supplier_{idx}")])
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text="Выберите товарную позицию для поиска поставщика:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+        elif query.data.startswith("find_supplier_"):
+            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
+                await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                return
+            idx = int(query.data.split('_')[-1])
+            tender_data = self.user_sessions[user_id]['tender_data']
+            # Универсальный способ извлечения товарных позиций
+            if len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
+                tender_data = list(tender_data.values())[0]
+            product_info = tender_data.get('Продукт', {})
+            objects = product_info.get('ОбъектыЗак', [])
+            if idx >= len(objects):
+                await query.edit_message_text("❌ Позиция не найдена.")
+                return
+            obj = objects[idx]
+            name = obj.get('Наименование', '')
+            # Берём поисковый запрос, сгенерированный ИИ для этой позиции
+            search_queries = self.user_sessions[user_id].get('search_queries', {})
+            search_query = search_queries.get(idx, name)
+            await query.edit_message_text(f"🔎 Ищу поставщиков по позиции: {name} (по запросу: {search_query})...")
+            search_results = await self._search_suppliers_serpapi(search_query)
+            gpt_result = await self._extract_suppliers_gpt_ranked(search_query, search_results)
+            await context.bot.send_message(chat_id=query.message.chat_id, text=gpt_result, parse_mode='HTML')
     
     async def _search_suppliers_serpapi(self, query):
         from concurrent.futures import ThreadPoolExecutor

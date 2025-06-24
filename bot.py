@@ -202,6 +202,10 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
     
     async def _send_products_list(self, update: Update, tender_data: dict) -> None:
         """Отправляет список товарных позиций тендера"""
+        # Если данные содержат номер тендера как ключ, извлекаем данные из внутреннего объекта
+        if len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
+            tender_data = list(tender_data.values())[0]
+        
         product_info = tender_data.get('Продукт', {})
         objects = product_info.get('ОбъектыЗак', [])
         
@@ -236,6 +240,10 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
     
     async def _send_documents_list(self, update: Update, tender_data: dict) -> None:
         """Отправляет список документов тендера"""
+        # Если данные содержат номер тендера как ключ, извлекаем документы из внутреннего объекта
+        if len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
+            tender_data = list(tender_data.values())[0]
+        
         documents = tender_data.get('Документы', [])
         
         if not documents:

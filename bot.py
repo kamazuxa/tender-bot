@@ -344,6 +344,11 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         # ...
         # После получения ответа парсим summary и поисковые запросы
         # Возвращаем analysis_result с полями 'overall_analysis', 'search_queries', 'raw_data'
+        print("[bot] Перед вызовом анализа тендера")
+        print(f"[bot] Документы для анализа: {files if 'files' in locals() else 'нет переменной files'}")
+        analysis_result = await analyzer.analyze_tender_documents(formatted_info, files)
+        print("[bot] После вызова анализа тендера")
+        return analysis_result
     
     async def _send_analysis_to_chat(self, bot, chat_id: int, analysis_result: dict) -> None:
         if not analysis_result:

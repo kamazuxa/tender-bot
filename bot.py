@@ -237,7 +237,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик текстовых сообщений"""
         user = update.effective_user
-        message = update.message.text.strip()
+    message = update.message.text.strip()
         logger.info(f"[bot] Получено сообщение от {user.id}: {message[:50]}...")
         
         # Отправляем статус "печатает"
@@ -274,8 +274,8 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     f"❌ Не удалось найти тендер с номером {reg_number}.\n"
                     "Проверьте правильность номера или попробуйте позже."
                 )
-                return
-            
+        return
+
             # Форматируем информацию о тендере
             formatted_info = damia_client.format_tender_info(tender_data)
             
@@ -321,7 +321,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(info_text, parse_mode='Markdown', reply_markup=reply_markup)
     
-    async def _analyze_documents(self, tender_data, files):
+    async def _analyze_documents(self, tender_data, files, update=None, chat_id=None, bot=None):
         # Новый экспертный промпт для анализа и генерации поисковых запросов
         prompt = (
             "Ты — эксперт по госзакупкам и анализу товарных позиций для поиска поставщиков.\n"
@@ -338,15 +338,29 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             "Поисковые запросы:\n"
             "1. <позиция>: <поисковый запрос>\n2. ...\n"
         )
-        # ... существующий код анализа ...
-        # Вызов GPT с этим промптом и files
-        # ...
-        # После получения ответа парсим summary и поисковые запросы
-        # Возвращаем analysis_result с полями 'overall_analysis', 'search_queries', 'raw_data'
-        print("[bot] Перед вызовом анализа тендера")
-        print(f"[bot] Документы для анализа: {files if 'files' in locals() else 'нет переменной files'}")
+        # --- ВСТАВКА: UX-индикатор для больших тендеров ---
+        from analyzer import shrink_text
+        full_chunks = []
+        for file_info in files:
+            file_path = file_info['path']
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    text = f.read()
+                text = shrink_text(text)
+                header = f"==== ДОКУМЕНТ: {file_info.get('original_name', str(file_path))} ====\n{text.strip()}\n"
+                full_chunks.append(header)
+            except Exception:
+                continue
+        full_text = '\n\n'.join(full_chunks)
+        if len(full_text) > 20000:
+            # Определяем куда отправлять сообщение
+            if update is not None:
+                await update.message.reply_text("⚠️ слишком большой тендер — идёт по частям")
+            elif bot is not None and chat_id is not None:
+                await bot.send_message(chat_id=chat_id, text="⚠️ слишком большой тендер — идёт по частям")
+        # --- КОНЕЦ ВСТАВКИ ---
+        # Далее стандартный вызов анализа
         analysis_result = await analyzer.analyze_tender_documents(tender_data, files)
-        print("[bot] После вызова анализа тендера")
         return analysis_result
     
     async def _send_analysis_to_chat(self, bot, chat_id: int, analysis_result: dict) -> None:
@@ -460,8 +474,8 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             reg_number = query.data.split("_")[1]
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
-                return
-            
+        return
+
             # Получаем данные из сессии
             tender_data = self.user_sessions[user_id]['tender_data']
             
@@ -528,7 +542,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             formatted_info = self.user_sessions[user_id]['formatted_info']
             
             try:
-                # Скачиваем документы
+    # Скачиваем документы
                 await context.bot.send_message(chat_id=query.message.chat_id, text="📥 Скачиваю документы...")
                 download_result = await downloader.download_documents(tender_data, reg_number)
                 

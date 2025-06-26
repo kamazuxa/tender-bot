@@ -32,7 +32,7 @@ class DocumentAnalyzer:
         self.model = model
         self.client = OpenAI(api_key=api_key)
     
-    async def analyze_tender_documents(self, tender_info: Dict, downloaded_files: List[Dict]) -> str:
+    async def analyze_tender_documents(self, tender_info: Dict, downloaded_files: List[Dict], progress_callback=None) -> str:
         print("[analyzer] analyze_tender_documents (эконом режим) вызван")
         logger.info("[analyzer] analyze_tender_documents (эконом режим) вызван")
         if not downloaded_files:
@@ -47,6 +47,7 @@ class DocumentAnalyzer:
                 if not text or len(text.strip()) < 50:
                     logger.warning(f"[analyzer] Пустой или слишком короткий текст: {file_path}")
                     continue
+                text = shrink_text(text)
                 header = f"==== ДОКУМЕНТ: {file_info.get('original_name', str(file_path))} ====\n{text.strip()}\n"
                 full_chunks.append(header)
                 logger.info(f"[analyzer] {file_path} — длина текста: {len(text)}")
@@ -56,17 +57,46 @@ class DocumentAnalyzer:
         full_text = "\n\n".join(full_chunks)
         logger.info(f"[analyzer] Итоговый full_text длина: {len(full_text)}")
         logger.info(f"[analyzer] Итоговый full_text первые 500 символов: {full_text[:500]}")
-        # 2. Обрезаем если слишком длинно (лимит 120000 символов)
-        if len(full_text) > 120000:
-            logger.warning("[analyzer] Суммарный текст превышает лимит, будет усечён")
-            full_text = full_text[:120000]
-        # 3. Кеширование по хешу full_text
-        cache_key = hashlib.sha256(full_text.encode('utf-8')).hexdigest()
-        cache_file = Path(f"analysis_cache/{cache_key}.txt")
-        if cache_file.exists():
-            logger.info(f"[analyzer] Найден кеш анализа по хешу: {cache_key}")
-            return cache_file.read_text(encoding='utf-8')
-        # 4. Формируем messages
+
+        MAX_LEN = 120_000
+        # Если помещается — обычный анализ
+        if len(full_text) <= MAX_LEN:
+            logger.info("[analyzer] Текст помещается в лимит, отправляем одним запросом")
+            return await self._analyze_single(full_text, tender_info)
+        # Иначе — разбиваем на чанки
+        logger.warning("[analyzer] Текст превышает лимит, разбиваем на части")
+        if progress_callback:
+            await progress_callback("⚠️ слишком большой тендер — анализ идёт по частям")
+        # Разбиваем по ==== ДОКУМЕНТ
+        docs = full_text.split('==== ДОКУМЕНТ')
+        docs = [d for d in docs if d.strip()]
+        chunks = []
+        current = ''
+        for d in docs:
+            doc = '==== ДОКУМЕНТ' + d
+            if len(current) + len(doc) > MAX_LEN and current:
+                chunks.append(current)
+                current = doc
+            else:
+                current += doc
+        if current:
+            chunks.append(current)
+        logger.info(f"[analyzer] Получено чанков: {len(chunks)}")
+        analyses = []
+        for i, chunk in enumerate(chunks):
+            if progress_callback:
+                await progress_callback(f"🤖 Анализируется часть {i+1} из {len(chunks)}...")
+            logger.info(f"[analyzer] Отправляем чанк {i+1}/{len(chunks)} длина {len(chunk)}")
+            result = await self._analyze_single(chunk, tender_info, part_num=i+1, total_parts=len(chunks))
+            analyses.append(result)
+        # Объединяющий запрос
+        if progress_callback:
+            await progress_callback("🤖 Формируется итоговый анализ по всем частям...")
+        summary_prompt = "Вот анализы по частям:\n" + "\n\n".join(analyses) + "\n\nСделай общий вывод по тендеру, объединив все части, и выполни все пункты анализа как обычно."
+        summary = await self._analyze_single(summary_prompt, tender_info, is_summary=True)
+        return summary
+
+    async def _analyze_single(self, text, tender_info, part_num=None, total_parts=None, is_summary=False):
         prompt_instructions = (
             "Проанализируй их комплексно и выполни следующие задачи:\n\n"
             "1. Дай краткое описание закупки: какие товары/услуги требуются, объёмы, особенности (ГОСТ, фасовка, сорт, единицы измерения, сроки и т.п.).\n"
@@ -79,14 +109,21 @@ class DocumentAnalyzer:
             "1. <позиция>: <поисковый запрос>\n"
             "2. ..."
         )
+        if is_summary:
+            prompt_instructions = (
+                "На основе этих анализов по частям, сделай общий вывод по тендеру и выполни все пункты анализа как обычно.\n"
+                "Формат ответа:\n"
+                "Анализ: <...>\n"
+                "Поисковые запросы:\n"
+                "1. <позиция>: <поисковый запрос>\n"
+                "2. ..."
+            )
         messages = [
             {"role": "system", "content": "Ты — эксперт по госзакупкам и анализу тендерной документации."},
-            {"role": "user", "content": full_text},
+            {"role": "user", "content": text},
             {"role": "user", "content": prompt_instructions}
         ]
-        logger.info(f"[analyzer] messages[1] length: {len(full_text)}")
-        logger.info(f"[analyzer] prompt preview (messages[2]): {prompt_instructions[:500]}")
-        # 5. Отправляем в OpenAI
+        logger.info(f"[analyzer] _analyze_single: messages[1] length: {len(text)} part {part_num}/{total_parts} summary={is_summary}")
         try:
             response = await asyncio.get_event_loop().run_in_executor(
                 None,
@@ -98,10 +135,7 @@ class DocumentAnalyzer:
                 )
             )
             answer = response.choices[0].message.content.strip()
-            logger.info(f"[analyzer] Ответ OpenAI (первые 500 символов): {answer[:500]}")
-            # 6. Сохраняем в кеш
-            cache_file.parent.mkdir(exist_ok=True)
-            cache_file.write_text(answer, encoding='utf-8')
+            logger.info(f"[analyzer] _analyze_single: Ответ OpenAI (первые 500 символов): {answer[:500]}")
             return answer
         except Exception as e:
             logger.error(f"[analyzer] Ошибка запроса к OpenAI: {e}")
@@ -326,6 +360,43 @@ class DocumentAnalyzer:
             },
             "analysis_timestamp": asyncio.get_event_loop().time()
         }
+
+def shrink_text(text: str, max_len: int = 15000) -> str:
+    """
+    Умная фильтрация и сжатие текста для анализа тендерных документов.
+    - Удаляет пустые строки
+    - Удаляет длинные заголовки (более 120 символов)
+    - Удаляет повторяющиеся блоки
+    - Оставляет только строки с ключевыми словами (ТЗ, требования, таблицы, позиции, товары, условия, ГОСТ, ТУ, фасовка, упаковка, объем, количество, цена, срок)
+    - Если текст > 20000 символов — берёт только первые 10k и последние 5k
+    """
+    import re
+    lines = text.splitlines()
+    # Удаляем пустые строки и длинные заголовки
+    lines = [line.strip() for line in lines if line.strip() and len(line.strip()) < 120]
+    # Ключевые слова для фильтрации
+    keywords = [
+        'техническое задание', 'тз', 'требован', 'услов', 'позици', 'товар', 'таблиц',
+        'гост', 'ту', 'фасов', 'упаков', 'объем', 'количеств', 'цена', 'стоим', 'срок',
+        'описание', 'предмет', 'контракт', 'поставка', 'лот', 'участник', 'заказчик', 'реестровый номер'
+    ]
+    # Оставляем строки с ключевыми словами или таблицы (простая эвристика: много ; или | или табуляций)
+    filtered = []
+    seen = set()
+    for line in lines:
+        l = line.lower()
+        if any(kw in l for kw in keywords) or l.count(';') > 2 or l.count('|') > 2 or l.count('\t') > 2:
+            if l not in seen:
+                filtered.append(line)
+                seen.add(l)
+    # Если фильтрация дала слишком мало, fallback к исходным lines
+    if len(filtered) < 30:
+        filtered = lines
+    result = '\n'.join(filtered)
+    # Если текст слишком длинный — берём только начало и конец
+    if len(result) > 20000:
+        return result[:10000] + '\n...\n' + result[-5000:]
+    return result
 
 # Создаем глобальный экземпляр анализатора
 analyzer = DocumentAnalyzer(OPENAI_API_KEY)

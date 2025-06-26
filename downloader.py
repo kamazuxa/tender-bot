@@ -29,7 +29,7 @@ class DocumentDownloader:
 
         documents = tender_data.get("Документы", [])
         all_files = []
-    for doc in documents:
+        for doc in documents:
             files = doc.get("Файлы", [])
             for f in files:
                 all_files.append(f)

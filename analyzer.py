@@ -54,25 +54,23 @@ class DocumentAnalyzer:
             logger.info("[analyzer] Нет подходящих файлов для анализа")
             return "Нет подходящих файлов для анализа."
         # 2. Объединяем с метками
-        doc_texts = [f"==== ДОКУМЕНТ: {name} ====" + "\n" + t for name, t in texts]
-        full_text = "\n\n".join(doc_texts)
-        logger.info(f"[analyzer] Итоговый full_text длина: {len(full_text)}")
-        logger.info(f"[analyzer] Итоговый full_text первые 500 символов: {full_text[:500]}")
-        # 3. Обрезаем если слишком длинно (лимит 15000 токенов ≈ 60000 символов)
-        max_len = 60000
-        if len(full_text) > max_len:
-            logger.warning(f"[analyzer] Суммарный текст превышает лимит, будет усечён")
-            # Равномерно сокращаем каждый документ
-            n = len(doc_texts)
-            chunk = max_len // n
-            doc_texts = [t[:chunk] for t in doc_texts]
-            full_text = "\n\n".join(doc_texts)
-        # 4. Формируем промпт
-        prompt = self.make_analysis_prompt(full_text)
-        logger.info(f"DEBUG prompt preview: {prompt[:2000]}")
-        logger.info(f"[analyzer] Отправляю в OpenAI объединённый промпт длиной {len(prompt)} символов")
-        # 5. Один вызов к OpenAI
-        analysis = await self._call_openai_api(prompt)
+        doc_texts = [f"==== ДОКУМЕНТ: {name} ====\n" + t for name, t in texts]
+        # 3. Разбиваем на блоки по 10_000 символов
+        chunk_size = 10000
+        blocks = []
+        for doc in doc_texts:
+            for i in range(0, len(doc), chunk_size):
+                blocks.append(doc[i:i+chunk_size])
+        logger.info(f"[analyzer] Всего блоков для OpenAI: {len(blocks)}")
+        # 4. Если блоков слишком много (>12), оставляем только первые 12
+        max_blocks = 12
+        if len(blocks) > max_blocks:
+            logger.warning(f"[analyzer] Слишком много блоков ({len(blocks)}), будут отправлены только первые {max_blocks}")
+            blocks = blocks[:max_blocks]
+        for i, block in enumerate(blocks):
+            logger.info(f"[analyzer] block[{i}] длина: {len(block)} первые 200: {block[:200]}")
+        # 5. Отправляем blocks в _call_openai_api
+        analysis = await self._call_openai_api(blocks)
         if not analysis:
             logger.error("[analyzer] Не удалось получить анализ от OpenAI")
             return "❌ Не удалось получить анализ тендера. Попробуйте позже."
@@ -178,7 +176,7 @@ class DocumentAnalyzer:
 2. ...
 """
     
-    async def _call_openai_api(self, full_text: str) -> str:
+    async def _call_openai_api(self, blocks: list) -> str:
         print("[analyzer] _call_openai_api (messages) вызван")
         logger.info("[analyzer] _call_openai_api (messages) вызван")
         try:
@@ -191,15 +189,13 @@ class DocumentAnalyzer:
             messages = [
                 {"role": "system", "content": system_prompt}
             ]
-            # 2. Разбиваем full_text на блоки по 10000 символов
-            chunk_size = 10000
-            blocks = [full_text[i:i+chunk_size] for i in range(0, len(full_text), chunk_size)]
+            # 2. Добавляем каждый блок как отдельное user-сообщение
             for idx, block in enumerate(blocks):
                 messages.append({
                     "role": "user",
                     "content": f"==== ДОКУМЕНТ {idx+1} ====\n{block}"
                 })
-            logger.info(f"[analyzer] Всего блоков для OpenAI: {len(blocks)}")
+            logger.info(f"[analyzer] Всего user-блоков для OpenAI: {len(blocks)}")
             for i, m in enumerate(messages):
                 logger.info(f"[analyzer] messages[{i}] role={m['role']} len={len(m['content'])}")
             # 3. Финальный промпт

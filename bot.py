@@ -355,6 +355,10 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             logger.error(f"[bot] analysis_result is None! Не удалось проанализировать тендер. analysis_result: {analysis_result}")
             await bot.send_message(chat_id=chat_id, text="❌ Не удалось проанализировать тендер. Попробуйте позже.")
             return
+        if not isinstance(analysis_result, dict):
+            logger.error(f"[bot] analysis_result не dict: {analysis_result}")
+            await bot.send_message(chat_id=chat_id, text="❌ Не удалось проанализировать тендер (неверный формат данных). Попробуйте позже.")
+            return
         overall = analysis_result.get('overall_analysis', {})
         summary = overall.get('summary', 'Анализ недоступен')
         
@@ -392,6 +396,10 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         if not analysis_result:
             logger.error(f"[bot] analysis_result is None! Не удалось проанализировать тендер. analysis_result: {analysis_result}")
             await update.message.reply_text("❌ Не удалось проанализировать тендер. Попробуйте позже.")
+            return
+        if not isinstance(analysis_result, dict):
+            logger.error(f"[bot] analysis_result не dict: {analysis_result}")
+            await update.message.reply_text("❌ Не удалось проанализировать тендер (неверный формат данных). Попробуйте позже.")
             return
         overall = analysis_result.get('overall_analysis', {})
         summary = overall.get('summary', 'Анализ недоступен')

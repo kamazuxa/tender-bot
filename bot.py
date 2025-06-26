@@ -511,22 +511,43 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
-            
             # Получаем данные из сессии
             tender_data = self.user_sessions[user_id]['tender_data']
             formatted_info = self.user_sessions[user_id]['formatted_info']
-            
+            # --- Удаляем кнопку 'Подробный анализ' после нажатия ---
+            # Восстанавливаем текст и кнопки, но без analyze_
+            info_text = f"""
+📋 **Информация о закупке**
+
+📊 **Статус:** {formatted_info['status']}
+📋 **Федеральный закон:** {formatted_info['federal_law']}-ФЗ
+🏢 **Заказчик:** {formatted_info['customer']}
+📝 **ИНН:** {formatted_info['customer_inn']}
+📍 **Адрес:** {formatted_info['customer_address']}
+📄 **Предмет поставки:** {formatted_info['subject']}
+💰 **Цена:** {format_price(formatted_info['price'])}
+📅 **Дата публикации:** {format_date(formatted_info['publication_date'])}
+⏰ **Срок подачи до:** {format_date(formatted_info['submission_deadline'])}
+
+📍 **Место поставки:** {formatted_info['delivery_place']}"""
+            keyboard = [
+                [InlineKeyboardButton("📦 Товарные позиции", callback_data=f"products_{reg_number}")],
+                [InlineKeyboardButton("📄 Документы", callback_data=f"documents_{reg_number}")],
+                [InlineKeyboardButton("🏢 Подробная информация", callback_data=f"details_{reg_number}")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
             try:
-                # Скачиваем документы
+                await query.edit_message_text(info_text, parse_mode='Markdown', reply_markup=reply_markup)
+            except Exception:
+                pass
+            try:
                 await context.bot.send_message(chat_id=query.message.chat_id, text="📥 Скачиваю документы...")
                 download_result = await downloader.download_documents(tender_data, reg_number)
-                
                 if download_result['success'] > 0:
                     await context.bot.send_message(
                         chat_id=query.message.chat_id,
                         text=f"✅ Скачано документов: {download_result['success']}\n❌ Не удалось скачать: {download_result['failed']}"
                     )
-                    
                     # Анализируем документы
                     if download_result['files']:
                         await context.bot.send_message(chat_id=query.message.chat_id, text="🤖 Анализирую документы с помощью ИИ...")
@@ -540,10 +561,8 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                         await context.bot.send_message(chat_id=query.message.chat_id, text="⚠️ Документы не найдены для анализа")
                 else:
                     await context.bot.send_message(chat_id=query.message.chat_id, text="⚠️ Не удалось скачать документы для анализа")
-                
                 # Обновляем статус сессии
                 self.user_sessions[user_id]['status'] = 'ready_for_analysis'
-                
             except Exception as e:
                 logger.error(f"[bot] Ошибка анализа тендера {reg_number}: {e}")
                 await context.bot.send_message(

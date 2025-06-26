@@ -42,6 +42,8 @@ class DocumentAnalyzer:
         logger.info(f"[analyzer] 🤖 Начинаем анализ {len(downloaded_files)} документов")
         print(f"[analyzer] 🤖 Начинаем анализ {len(downloaded_files)} документов")
         
+        logger.info("[analyzer] Начинаю анализ...")
+        print("[analyzer] Начинаю анализ...")
         try:
             # Подготавливаем контекст о тендере
             tender_context = self._prepare_tender_context(tender_info)
@@ -56,11 +58,18 @@ class DocumentAnalyzer:
                 except Exception as e:
                     logger.error(f"[analyzer] ❌ Ошибка анализа документа {file_info.get('name', 'unknown')}: {e}")
             
+            # --- ВАЖНО: лог после получения GPT-ответа ---
+            logger.info("[analyzer] GPT ответ получен")
+            print("[analyzer] GPT ответ получен")
+            # ---
             # Создаем общий анализ
             overall_analysis = await self._create_overall_analysis(tender_info, document_analyses)
             logger.info(f"[analyzer] ✅ Общий анализ: {overall_analysis}")
             print(f"[analyzer] ✅ Общий анализ: {overall_analysis}")
-            
+            # --- ВАЖНО: лог после парсинга анализа ---
+            logger.info("[analyzer] Парсинг анализа прошёл")
+            print("[analyzer] Парсинг анализа прошёл")
+            # ---
             return {
                 "tender_summary": tender_context,
                 "document_analyses": document_analyses,
@@ -212,7 +221,11 @@ class DocumentAnalyzer:
             return None
     
     def _create_analysis_prompt(self, content: str, tender_context: Dict, filename: str) -> str:
-        """Создает промпт для анализа документа"""
+        """
+        Создаёт промпт для анализа документа
+        """
+        # Ограничиваем размер текста документа для GPT (например, 4000 символов)
+        content_short = content[:4000] if content else ''
         return f"""
 Проанализируй документ тендера "{filename}" и предоставь структурированный анализ.
 
@@ -223,7 +236,7 @@ class DocumentAnalyzer:
 - Срок подачи: {tender_context.get('submission_deadline', 'Не указан')}
 
 Содержимое документа:
-{content[:4000]}  # Ограничиваем размер для API
+{content_short}
 
 Пожалуйста, проанализируй документ и предоставь:
 

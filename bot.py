@@ -352,7 +352,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
     
     async def _send_analysis_to_chat(self, bot, chat_id: int, analysis_result: dict) -> None:
         if not analysis_result:
-            logger.error("[bot] analysis_result is None! Не удалось проанализировать тендер.")
+            logger.error(f"[bot] analysis_result is None! Не удалось проанализировать тендер. analysis_result: {analysis_result}")
             await bot.send_message(chat_id=chat_id, text="❌ Не удалось проанализировать тендер. Попробуйте позже.")
             return
         overall = analysis_result.get('overall_analysis', {})
@@ -376,8 +376,10 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 session['search_queries'] = search_queries
         # Сохраняем список позиций (для кнопок)
         tender_data = analysis_result.get('raw_data') or overall.get('raw_data')
-        product_info = tender_data.get('Продукт', {}) if tender_data else {}
+        product_info = tender_data.get('Продукт', {})
+        print(f"[bot] tender_data['Продукт']: {product_info}")
         objects = product_info.get('ОбъектыЗак', [])
+        print(f"[bot] product_info['ОбъектыЗак']: {objects}")
         for user_id, session in self.user_sessions.items():
             if session.get('status') in ['ready_for_analysis', 'completed']:
                 session['objects'] = objects
@@ -688,6 +690,8 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         results = []
         client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
         for _, url, html in filtered_links[:10]:
+            # Ограничиваем размер HTML для GPT (например, 8000 символов)
+            html_short = html[:8000] if html else ''
             prompt = f"""Ты — эксперт по анализу сайтов и поиску поставщиков.
 
 Это HTML страницы интернет-магазина. Проанализируй только основные блоки текста (без меню и футера).
@@ -722,7 +726,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
 Комментарий: ... (если есть)
 
 Вот HTML-код страницы:
-{html}
+{html_short}
 """
             try:
                 response = await client.chat.completions.create(
@@ -745,7 +749,9 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             tender_data = list(tender_data.values())[0]
         
         product_info = tender_data.get('Продукт', {})
+        print(f"[bot] tender_data['Продукт']: {product_info}")
         objects = product_info.get('ОбъектыЗак', [])
+        print(f"[bot] product_info['ОбъектыЗак']: {objects}")
         
         if not objects:
             await bot.send_message(chat_id=chat_id, text="📦 Товарные позиции не найдены")

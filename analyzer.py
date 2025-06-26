@@ -178,17 +178,47 @@ class DocumentAnalyzer:
 2. ...
 """
     
-    async def _call_openai_api(self, prompt: str) -> str:
-        print("[analyzer] _call_openai_api вызван")
-        logger.info("[analyzer] _call_openai_api вызван")
+    async def _call_openai_api(self, full_text: str) -> str:
+        print("[analyzer] _call_openai_api (messages) вызван")
+        logger.info("[analyzer] _call_openai_api (messages) вызван")
         try:
-            logger.info(f"[analyzer] Отправляю в OpenAI prompt длиной {len(prompt)} символов")
-            print(f"[analyzer] Отправляю в OpenAI prompt длиной {len(prompt)} символов")
+            # 1. Инструкция
+            system_prompt = (
+                "Ты — эксперт по госзакупкам и анализу тендерной документации. "
+                "Тебе будут поочерёдно отправлены блоки текста из разных документов закупки. "
+                "Не отвечай до финального сообщения! Просто запоминай и анализируй текст."
+            )
+            messages = [
+                {"role": "system", "content": system_prompt}
+            ]
+            # 2. Разбиваем full_text на блоки по 10000 символов
+            chunk_size = 10000
+            blocks = [full_text[i:i+chunk_size] for i in range(0, len(full_text), chunk_size)]
+            for idx, block in enumerate(blocks):
+                messages.append({
+                    "role": "user",
+                    "content": f"==== ДОКУМЕНТ {idx+1} ===="\n{block}"
+                })
+            logger.info(f"[analyzer] Всего блоков для OpenAI: {len(blocks)}")
+            for i, m in enumerate(messages):
+                logger.info(f"[analyzer] messages[{i}] role={m['role']} len={len(m['content'])}")
+            # 3. Финальный промпт
+            final_prompt = (
+                "Проанализируй все документы, которые были отправлены выше, и выполни следующие задачи по пунктам:\n"
+                "1. Дай краткое описание закупки: какие товары/услуги требуются, объёмы, особенности (ГОСТ, фасовка, сорт, единицы измерения, сроки и т.п.).\n"
+                "2. Определи потенциальные риски и подводные камни для участника закупки (неясности в ТЗ, требования к упаковке, ограничения по поставке, логистике, сертификации и т.д.).\n"
+                "3. Дай рекомендации: стоит ли участвовать в закупке с учётом этих рисков? Почему да или почему нет?\n"
+                "4. Сформируй поисковые запросы в Яндексе для каждой товарной позиции, чтобы найти поставщиков в России. Запросы должны быть максимально релевантными для нахождения коммерческих предложений, цен и контактов. Включай: – наименование товара (кратко), – сорт/марку/модель, – ГОСТ/ТУ, – фасовку/упаковку, – объём (если применимо), – ключевые слова: купить, оптом, цена, поставщик.\n\n"
+                "Формат ответа:\nАнализ: <...>\nПоисковые запросы:\n1. <позиция>: <поисковый запрос>\n2. ..."
+            )
+            messages.append({"role": "user", "content": final_prompt})
+            logger.info(f"[analyzer] Финальный messages[{len(messages)-1}] len={len(final_prompt)}")
+            # 4. Отправляем в OpenAI
             response = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: self.client.chat.completions.create(
                     model=self.model,
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=messages,
                     max_tokens=1200,
                     temperature=0.2,
                 )

@@ -627,7 +627,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 "text": query,
                 "lang": lang,
                 "api_key": SERPAPI_KEY,
-                "num": 10
+                "num": 20
             }
             search = GoogleSearch(params)
             return search.get_dict()
@@ -658,45 +658,84 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         if not links:
             return "В поисковой выдаче не найдено подходящих сайтов (все ссылки — маркетплейсы, агрегаторы или нерелевантные ресурсы)."
         filtered_links = []
-        for url in links[:10]:
+        # Проверяем все сайты из выдачи (до 40), а не только первые 10
+        for url in links:
+            logger.info(f"[bot] Проверяем сайт: {url}")
+            
             # PDF-фильтр
             if url.lower().endswith('.pdf'):
+                logger.info(f"[bot] ❌ {url} — отсеян: PDF файл")
                 continue
             mime, _ = mimetypes.guess_type(url)
             if mime and 'pdf' in mime:
+                logger.info(f"[bot] ❌ {url} — отсеян: PDF mime-type")
                 continue
+                
             html = await fetch_html(url)
             if not html:
+                logger.info(f"[bot] ❌ {url} — отсеян: не удалось скачать HTML")
                 continue
+                
             html_lower = html.lower()
+            
             # Минус-слова в HTML
-            if any(word in html_lower for word in EXCLUDE_MINUS_WORDS):
+            minus_words_found = [word for word in EXCLUDE_MINUS_WORDS if word in html_lower]
+            if minus_words_found:
+                logger.info(f"[bot] ❌ {url} — отсеян: найдены минус-слова: {minus_words_found}")
                 continue
-            # Контент-фильтрация: должны быть "цена" или "руб" или "₽"
-            if not ("цена" in html_lower or "руб" in html_lower or "₽" in html_lower):
+                
+            # Ослабленная контент-фильтрация: хотя бы одно из условий
+            has_price = "цена" in html_lower or "руб" in html_lower or "₽" in html_lower
+            has_contacts = "@" in html_lower or "phone" in html_lower or "tel:" in html_lower
+            has_keywords = any(word in html_lower for word in ["опт", "заказ", "поставка", "купить", "продажа"])
+            
+            if not (has_price or has_contacts or has_keywords):
+                logger.info(f"[bot] ❌ {url} — отсеян: нет ни цен, ни контактов, ни ключевых слов")
                 continue
-            # Контакты: должен быть e-mail, phone, tel:
-            if not ("@" in html_lower or "phone" in html_lower or "tel:" in html_lower):
-                continue
+            else:
+                logger.info(f"[bot] ✅ {url} — прошёл фильтрацию: цена={has_price}, контакты={has_contacts}, ключевые слова={has_keywords}")
+                
             # Title/h1-фильтрация
             try:
                 soup = BeautifulSoup(html, 'html.parser')
                 title = soup.title.string.lower() if soup.title and soup.title.string else ''
                 h1 = soup.h1.string.lower() if soup.h1 and soup.h1.string else ''
-                if any(word in title for word in ["тендер", "pdf", "архив", "документ"]) or any(word in h1 for word in ["тендер", "pdf", "архив", "документ"]):
+                bad_title_words = [word for word in ["тендер", "pdf", "архив", "документ"] if word in title]
+                bad_h1_words = [word for word in ["тендер", "pdf", "архив", "документ"] if word in h1]
+                if bad_title_words or bad_h1_words:
+                    logger.info(f"[bot] ❌ {url} — отсеян: плохие заголовки: title={bad_title_words}, h1={bad_h1_words}")
                     continue
-            except Exception:
+            except Exception as e:
+                logger.warning(f"[bot] ⚠️ {url} — ошибка при проверке заголовков: {e}")
                 pass
-            # Авторанжирование по весу слов (цена, телефон, e-mail, опт, заказ)
-            weight = sum(word in html_lower for word in ["цена", "телефон", "e-mail", "опт", "заказ"])
-            filtered_links.append((weight, url, html))
+                
+            # Ослабленное авторанжирование по весу слов (30% релевантности)
+            relevant_words = ["цена", "телефон", "e-mail", "опт", "заказ", "поставка", "купить", "продажа", "контакты"]
+            found_words = [word for word in relevant_words if word in html_lower]
+            weight = len(found_words)
+            max_possible_weight = len(relevant_words)
+            relevance_percent = (weight / max_possible_weight) * 100
+            
+            # Разрешаем сайты с 30% релевантности
+            if relevance_percent >= 30:
+                logger.info(f"[bot] ✅ {url} — релевантность {relevance_percent:.1f}% (найдены слова: {found_words})")
+                filtered_links.append((weight, url, html, relevance_percent))
+            else:
+                logger.info(f"[bot] ❌ {url} — отсеян: низкая релевантность {relevance_percent:.1f}% (найдены слова: {found_words})")
+                
         # Сортируем по весу (релевантности)
-        filtered_links.sort(reverse=True)
+        filtered_links.sort(key=lambda x: x[3], reverse=True)  # сортируем по проценту релевантности
         if not filtered_links:
             return "Не найдено сайтов с релевантной информацией (контент-фильтрация, PDF, минус-слова, нерелевантные заголовки)."
+            
+        logger.info(f"[bot] Найдено {len(filtered_links)} подходящих сайтов из {len(links)} проверенных")
+        for i, (weight, url, html, relevance) in enumerate(filtered_links[:10]):
+            logger.info(f"[bot] Топ {i+1}: {url} (релевантность: {relevance:.1f}%)")
+            
         results = []
         client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
-        for _, url, html in filtered_links[:10]:
+        # Отправляем в ИИ максимум 10 лучших сайтов
+        for weight, url, html, relevance in filtered_links[:10]:
             # Ограничиваем размер HTML для GPT (например, 8000 символов)
             html_short = html[:8000] if html else ''
             prompt = f"""Ты — эксперт по анализу сайтов и поиску поставщиков.
@@ -743,10 +782,10 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     temperature=0.2,
                 )
                 answer = response.choices[0].message.content
-                results.append(f"<b>Сайт:</b> {url}\n{answer.strip()}")
+                results.append(f"<b>Сайт:</b> {url} (релевантность: {relevance:.1f}%)\n{answer.strip()}")
             except Exception as e:
                 logger.error(f"[bot] Ошибка OpenAI: {e}")
-                results.append(f"<b>Сайт:</b> {url}\n[Ошибка при обращении к GPT]")
+                results.append(f"<b>Сайт:</b> {url} (релевантность: {relevance:.1f}%)\n[Ошибка при обращении к GPT]")
         return "\n\n".join(results)
     
     async def _send_products_list_to_chat(self, bot, chat_id: int, tender_data: dict, page: int = 0, message_id: int = None) -> None:
@@ -1012,7 +1051,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             print("📝 Логи сохраняются в файл:", LOG_FILE)
             self.app.run_polling()
         except Exception as e:
-            logger.error(f"❌ Ошибкаа запуска бота {e}")
+            logger.error(f"❌ Ошибка запуска бота {e}")
             raise
 
     async def _generate_supplier_queries(self, formatted_info):

@@ -18,6 +18,7 @@ from serpapi import GoogleSearch
 import json
 import openai
 from urllib.parse import urlparse
+import mimetypes
 try:
     import httpx
 except ImportError:
@@ -41,7 +42,14 @@ logger = logging.getLogger(__name__)
 EXCLUDE_DOMAINS = [
     "avito.ru", "wildberries.ru", "ozon.ru", "market.yandex.ru", "lavka.yandex.ru",
     "beru.ru", "goods.ru", "tmall.ru", "aliexpress.ru",
-    "youtube.com", "youtu.be", "rutube.ru"
+    "youtube.com", "youtu.be", "rutube.ru",
+    "consultant.ru"
+]
+EXCLUDE_PATTERNS = ["gost", "wiki", "gos", ".edu", ".gov"]
+EXCLUDE_MINUS_WORDS = ["гост", "википедия", "техусловия", "норматив", "техзадание"]
+EXCLUDE_HTML = [
+    'tender', 'zakupka', 'zakupki', 'тендер', 'закупка', 'видео',
+    *EXCLUDE_MINUS_WORDS
 ]
 
 def is_good_domain(url):
@@ -51,12 +59,33 @@ def is_good_domain(url):
 async def fetch_html(url):
     if not httpx or not BeautifulSoup:
         return None
+    # PDF-фильтр по расширению
+    if url.lower().endswith('.pdf'):
+        return None
+    # PDF-фильтр по mime-type
+    mime, _ = mimetypes.guess_type(url)
+    if mime and 'pdf' in mime:
+        return None
     try:
         async with httpx.AsyncClient(timeout=10) as client:
             resp = await client.get(url, follow_redirects=True)
-            if resp.status_code == 200:
+            if resp.status_code == 200 and 'pdf' not in resp.headers.get('content-type', ''):
                 soup = BeautifulSoup(resp.text, 'html.parser')
-                text = soup.get_text(separator=' ', strip=True)
+                # Вырезаем мусорные блоки
+                for tag in soup(['header', 'footer', 'nav', 'aside']):
+                    tag.decompose()
+                # Оставляем только main, article, div.content если есть
+                main = soup.find('main')
+                article = soup.find('article')
+                content_div = soup.find('div', class_='content')
+                if main:
+                    text = main.get_text(separator=' ', strip=True)
+                elif article:
+                    text = article.get_text(separator=' ', strip=True)
+                elif content_div:
+                    text = content_div.get_text(separator=' ', strip=True)
+                else:
+                    text = soup.get_text(separator=' ', strip=True)
                 return text[:8000]  # Ограничим для GPT
     except Exception as e:
         logger.error(f"[bot] Ошибка скачивания {url}: {e}")
@@ -292,6 +321,29 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(info_text, parse_mode='Markdown', reply_markup=reply_markup)
     
+    async def _analyze_documents(self, tender_data, files):
+        # Новый экспертный промпт для анализа и генерации поисковых запросов
+        prompt = (
+            "Ты — эксперт по госзакупкам и анализу товарных позиций для поиска поставщиков.\n"
+            "Вот текст закупочной документации и технического задания (ТЗ). Проанализируй его комплексно и выполни следующие задачи:\n"
+            "\nДай краткое описание закупки: какие товары требуются, в каком объёме, какие есть особенности (ГОСТ, фасовка, сорт, единицы измерения, сроки и т.п.).\n"
+            "\nОпредели потенциальные риски и подводные камни для участника закупки:\n"
+            "– есть ли неясности в ТЗ?\n"
+            "– указана ли конкретная упаковка или требования, которые сложно соблюсти?\n"
+            "– есть ли ограничения по поставке, логистике, сертификации и т.д.?\n"
+            "\nДай рекомендации: стоит ли участвовать в закупке с учётом этих рисков? Почему да или почему нет?\n"
+            "\nСформируй поисковые запросы в Яндексе для каждой товарной позиции, чтобы найти поставщиков в России. Запросы должны быть максимально релевантными для нахождения коммерческих предложений, цен и контактов. Включай: – наименование товара (кратко), – сорт/марку/модель, – ГОСТ/ТУ, – фасовку/упаковку, – объём (если применимо), – ключевые слова: купить, оптом, цена, поставщик.\n"
+            "\nДай результат в виде:\n"
+            "Анализ: <summary>\n"
+            "Поисковые запросы:\n"
+            "1. <позиция>: <поисковый запрос>\n2. ...\n"
+        )
+        # ... существующий код анализа ...
+        # Вызов GPT с этим промптом и files
+        # ...
+        # После получения ответа парсим summary и поисковые запросы
+        # Возвращаем analysis_result с полями 'overall_analysis', 'search_queries', 'raw_data'
+    
     async def _send_analysis_to_chat(self, bot, chat_id: int, analysis_result: dict) -> None:
         overall = analysis_result.get('overall_analysis', {})
         summary = overall.get('summary', 'Анализ недоступен')
@@ -307,35 +359,18 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         else:
             await bot.send_message(chat_id=chat_id, text=f"🤖 **Анализ тендера:**\n\n{summary}", parse_mode='Markdown')
         
-        # После анализа генерируем поисковые запросы для каждой товарной позиции
-        tender_data = analysis_result.get('raw_data') or overall.get('raw_data')
-        product_info = tender_data.get('Продукт', {}) if tender_data else {}
-        objects = product_info.get('ОбъектыЗак', [])
-        # Генерируем поисковые запросы для каждой позиции через GPT
-        search_queries = {}
-        if objects:
-            client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
-            for idx, obj in enumerate(objects):
-                name = obj.get('Наименование', '')
-                prompt = f"Сформируй поисковую фразу для поиска поставщика по товару: {name}. Укажи только саму фразу, без пояснений."
-                try:
-                    response = await client.chat.completions.create(
-                        model=OPENAI_MODEL,
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=50,
-                        temperature=0.2,
-                    )
-                    phrase = response.choices[0].message.content.strip()
-                    search_queries[idx] = phrase
-                except Exception as e:
-                    logger.error(f"[bot] Ошибка генерации поискового запроса для позиции {name}: {e}")
-                    search_queries[idx] = name  # fallback
-        # ЯВНОЕ ЛОГИРОВАНИЕ поисковых запросов для SerpAPI
-        logger.info(f"[bot] Поисковые запросы для SerpAPI: {search_queries}")
         # Сохраняем поисковые запросы в сессию пользователя
+        search_queries = analysis_result.get('search_queries', {})
         for user_id, session in self.user_sessions.items():
             if session.get('status') in ['ready_for_analysis', 'completed']:
                 session['search_queries'] = search_queries
+        # Сохраняем список позиций (для кнопок)
+        tender_data = analysis_result.get('raw_data') or overall.get('raw_data')
+        product_info = tender_data.get('Продукт', {}) if tender_data else {}
+        objects = product_info.get('ОбъектыЗак', [])
+        for user_id, session in self.user_sessions.items():
+            if session.get('status') in ['ready_for_analysis', 'completed']:
+                session['objects'] = objects
         # После анализа добавляем кнопку поиска поставщиков
         keyboard = [[InlineKeyboardButton("🔎 Найти поставщиков", callback_data="find_suppliers")]]
         await bot.send_message(chat_id=chat_id, text="Хотите найти поставщиков по результатам анализа?", reply_markup=InlineKeyboardMarkup(keyboard))
@@ -492,7 +527,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     # Анализируем документы
                     if download_result['files']:
                         await context.bot.send_message(chat_id=query.message.chat_id, text="🤖 Анализирую документы с помощью ИИ...")
-                        analysis_result = await analyzer.analyze_tender_documents(formatted_info, download_result['files'])
+                        analysis_result = await self._analyze_documents(formatted_info, download_result['files'])
                         
                         # Отправляем анализ
                         await self._send_analysis_to_chat(context.bot, query.message.chat_id, analysis_result)
@@ -529,12 +564,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
-            tender_data = self.user_sessions[user_id]['tender_data']
-            # Универсальный способ извлечения товарных позиций
-            if len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
-                tender_data = list(tender_data.values())[0]
-            product_info = tender_data.get('Продукт', {})
-            objects = product_info.get('ОбъектыЗак', [])
+            objects = self.user_sessions[user_id].get('objects', [])
             if not objects:
                 await query.edit_message_text("В этом тендере отсутствуют товарные позиции. Возможно, это закупка услуг или данные не заполнены.")
                 return
@@ -553,20 +583,16 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
             idx = int(query.data.split('_')[-1])
-            tender_data = self.user_sessions[user_id]['tender_data']
-            # Универсальный способ извлечения товарных позиций
-            if len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
-                tender_data = list(tender_data.values())[0]
-            product_info = tender_data.get('Продукт', {})
-            objects = product_info.get('ОбъектыЗак', [])
+            objects = self.user_sessions[user_id].get('objects', [])
             if idx >= len(objects):
                 await query.edit_message_text("❌ Позиция не найдена.")
                 return
             obj = objects[idx]
             name = obj.get('Наименование', '')
-            # Берём поисковый запрос, сгенерированный ИИ для этой позиции
+            # Берём поисковый запрос, сгенерированный ИИ для этой позиции при анализе
             search_queries = self.user_sessions[user_id].get('search_queries', {})
             search_query = search_queries.get(idx, name)
+            logger.info(f"[bot] Поисковый запрос для SerpAPI по позиции '{name}': {search_query}")
             await query.edit_message_text(f"🔎 Ищу поставщиков по позиции: {name} (по запросу: {search_query})...")
             search_results = await self._search_suppliers_serpapi(search_query)
             gpt_result = await self._extract_suppliers_gpt_ranked(search_query, search_results)
@@ -592,40 +618,102 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         return {'ru': ru, 'en': en}
 
     async def _extract_suppliers_gpt_ranked(self, search_query, search_results):
-        # Фильтрация только по доменам и стоп-словам, без ключевых слов
         if not httpx or not BeautifulSoup:
             return ("Для поиска поставщиков необходимо установить зависимости: httpx и beautifulsoup4.\n"
                     "Выполните команду: pip install httpx beautifulsoup4")
-        EXCLUDE_HTML = [
-            'tender', 'zakupka', 'zakupki', 'тендер', 'закупка', 'видео'
-        ]
         links = []
         for lang in ['ru', 'en']:
             for item in search_results[lang].get('organic_results', []):
                 url = item.get('link') or item.get('url')
-                if url and is_good_domain(url):
-                    links.append(url)
+                if not url:
+                    continue
+                netloc = urlparse(url).netloc.lower()
+                # Фильтрация по домену и паттернам
+                if any(domain in netloc for domain in EXCLUDE_DOMAINS):
+                    continue
+                if any(pat in url.lower() for pat in EXCLUDE_PATTERNS):
+                    continue
+                if any(word in url.lower() for word in EXCLUDE_MINUS_WORDS):
+                    continue
+                links.append(url)
         if not links:
-            return "В поисковой выдаче не найдено подходящих сайтов (все ссылки — маркетплейсы или агрегаторы)."
+            return "В поисковой выдаче не найдено подходящих сайтов (все ссылки — маркетплейсы, агрегаторы или нерелевантные ресурсы)."
         filtered_links = []
         for url in links[:10]:
-            # Фильтрация по домену (YouTube, Rutube и др.)
-            netloc = urlparse(url).netloc.lower()
-            if any(domain in netloc for domain in EXCLUDE_DOMAINS):
+            # PDF-фильтр
+            if url.lower().endswith('.pdf'):
+                continue
+            mime, _ = mimetypes.guess_type(url)
+            if mime and 'pdf' in mime:
                 continue
             html = await fetch_html(url)
             if not html:
                 continue
             html_lower = html.lower()
-            if any(ex in html_lower for ex in EXCLUDE_HTML):
+            # Минус-слова в HTML
+            if any(word in html_lower for word in EXCLUDE_MINUS_WORDS):
                 continue
-            filtered_links.append((url, html))
+            # Контент-фильтрация: должны быть "цена" или "руб" или "₽"
+            if not ("цена" in html_lower or "руб" in html_lower or "₽" in html_lower):
+                continue
+            # Контакты: должен быть e-mail, phone, tel:
+            if not ("@" in html_lower or "phone" in html_lower or "tel:" in html_lower):
+                continue
+            # Title/h1-фильтрация
+            try:
+                soup = BeautifulSoup(html, 'html.parser')
+                title = soup.title.string.lower() if soup.title and soup.title.string else ''
+                h1 = soup.h1.string.lower() if soup.h1 and soup.h1.string else ''
+                if any(word in title for word in ["тендер", "pdf", "архив", "документ"]) or any(word in h1 for word in ["тендер", "pdf", "архив", "документ"]):
+                    continue
+            except Exception:
+                pass
+            # Авторанжирование по весу слов (цена, телефон, e-mail, опт, заказ)
+            weight = sum(word in html_lower for word in ["цена", "телефон", "e-mail", "опт", "заказ"])
+            filtered_links.append((weight, url, html))
+        # Сортируем по весу (релевантности)
+        filtered_links.sort(reverse=True)
         if not filtered_links:
-            return "Не найдено сайтов с релевантной информацией (сайт содержит слова tender/zakupka/zakupki/тендер/закупка/видео)."
+            return "Не найдено сайтов с релевантной информацией (контент-фильтрация, PDF, минус-слова, нерелевантные заголовки)."
         results = []
         client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
-        for url, html in filtered_links[:10]:
-            prompt = f"""Вот страница сайта по запросу: {search_query}\n\n{html}\n---\nИзвлеки из этого текста:\n- Название компании\n- Цена\n- Телефон\n- Email\n- Сайт\nЕсли информации нет — напиши 'нет данных'."""
+        for _, url, html in filtered_links[:10]:
+            prompt = f"""Ты — эксперт по анализу сайтов и поиску поставщиков.
+
+Это HTML страницы интернет-магазина. Проанализируй только основные блоки текста (без меню и футера).
+
+Вот HTML-код страницы, которая появилась по запросу:
+"{search_query}"
+
+Проанализируй этот HTML и ответь на следующие вопросы:
+
+1. Есть ли на странице **реальная информация о товаре**, соответствующем запросу? Если нет — напиши, что сайт не релевантен.
+2. Если информация есть, то извлеки по возможности:
+   – Название товара  
+   – Цена (в рублях, за единицу: кг, мешок, шт и т.д.)  
+   – Упаковка / фасовка (например, мешки по 25 кг)  
+   – Минимальный объём заказа (если указан)  
+   – Название компании или сайта  
+   – Телефон, e-mail, мессенджеры  
+   – Условия доставки (если есть)  
+   – Регион поставки или работы компании (если указан)
+
+⚠️ Если информация частично отсутствует, просто пропусти этот пункт, не выдумывай.
+
+Формат ответа:
+Релевантность: да / нет  
+Товар: ...  
+Цена: ...  
+Фасовка: ...  
+Минимальный объём: ...  
+Компания: ...  
+Контакты: ...  
+Сайт: ...  
+Комментарий: ... (если есть)
+
+Вот HTML-код страницы:
+{html}
+"""
             try:
                 response = await client.chat.completions.create(
                     model=OPENAI_MODEL,

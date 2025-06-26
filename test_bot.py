@@ -154,6 +154,37 @@ async def test_file_structure():
         print("✅ Все необходимые файлы присутствуют")
         return True
 
+async def test_full_analysis():
+    """Тестирует полный анализ тендера с логированием для диагностики"""
+    print("🧠 Тест полного анализа тендера (GPT + парсинг)...")
+    try:
+        from analyzer import analyzer
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # Пример тестового текста (или путь к файлу)
+        test_text = "Поставка моркови, фасовка 25 кг, ГОСТ 12345-67, объем 10 тонн, срок поставки 10 дней."
+        # Логируем промпт (если есть функция создания промпта)
+        if hasattr(analyzer, '_create_analysis_prompt'):
+            prompt = analyzer._create_analysis_prompt(test_text, {}, "test.txt")
+            logger.info(f"[test] Промпт для GPT: {prompt[:500]}... (длина: {len(prompt)})")
+        # Вызов анализа (асинхронно)
+        if hasattr(analyzer, 'analyze_text'):
+            analysis_result = await analyzer.analyze_text(test_text)
+        else:
+            print("❌ analyzer.analyze_text не реализован")
+            return False
+        logger.info(f"[test] Сырой ответ анализа: {analysis_result}")
+        if not analysis_result:
+            print("❌ analysis_result is None! Не удалось проанализировать тестовый тендер.")
+            return False
+        logger.info(f"[test] Итоговый разбор анализа: {analysis_result}")
+        print("✅ Анализ тендера и логирование работают")
+        return True
+    except Exception as e:
+        print(f"❌ Ошибка теста полного анализа: {e}")
+        return False
+
 async def run_all_tests():
     """Запускает все тесты"""
     print("🧪 Запуск тестов TenderBot")
@@ -166,6 +197,7 @@ async def run_all_tests():
         ("Модуль скачивания", test_downloader),
         ("Модуль анализа", test_analyzer),
         ("API подключения", test_api_connections),
+        ("Полный анализ тендера", test_full_analysis),
     ]
     
     results = []

@@ -19,6 +19,9 @@ try:
     PDF_SUPPORT = True
 except ImportError:
     PDF_SUPPORT = False
+import fitz  # PyMuPDF
+import docx2txt
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -28,135 +31,50 @@ class DocumentAnalyzer:
         self.model = model
         self.client = OpenAI(api_key=api_key)
     
-    async def analyze_tender_documents(self, tender_info: Dict, downloaded_files: List[Dict]) -> Dict:
-        print("[analyzer] analyze_tender_documents вызван")
-        logger.info("[analyzer] analyze_tender_documents вызван")
-        """
-        Анализирует документы тендера с помощью OpenAI
-        """
+    async def analyze_tender_documents(self, tender_info: Dict, downloaded_files: List[Dict]) -> str:
+        print("[analyzer] analyze_tender_documents (объединённый режим) вызван")
+        logger.info("[analyzer] analyze_tender_documents (объединённый режим) вызван")
         if not downloaded_files:
             logger.info("[analyzer] 📄 Нет документов для анализа")
-            print("[analyzer] 📄 Нет документов для анализа")
-            return self._create_empty_analysis()
-        
-        logger.info(f"[analyzer] 🤖 Начинаем анализ {len(downloaded_files)} документов")
-        print(f"[analyzer] 🤖 Начинаем анализ {len(downloaded_files)} документов")
-        
-        logger.info("[analyzer] Начинаю анализ...")
-        print("[analyzer] Начинаю анализ...")
-        try:
-            # Подготавливаем контекст о тендере
-            tender_context = self._prepare_tender_context(tender_info)
-            
-            # Анализируем каждый документ
-            document_analyses = []
-            for file_info in downloaded_files:
-                try:
-                    analysis = await self._analyze_single_document(file_info, tender_context)
-                    if analysis:
-                        document_analyses.append(analysis)
-                except Exception as e:
-                    logger.error(f"[analyzer] ❌ Ошибка анализа документа {file_info.get('name', 'unknown')}: {e}")
-            
-            # --- ВАЖНО: лог после получения GPT-ответа ---
-            logger.info("[analyzer] GPT ответ получен")
-            print("[analyzer] GPT ответ получен")
-            # ---
-            # Создаем общий анализ
-            overall_analysis = await self._create_overall_analysis(tender_info, document_analyses)
-            logger.info(f"[analyzer] ✅ Общий анализ: {overall_analysis}")
-            print(f"[analyzer] ✅ Общий анализ: {overall_analysis}")
-            # --- ВАЖНО: лог после парсинга анализа ---
-            logger.info("[analyzer] Парсинг анализа прошёл")
-            print("[analyzer] Парсинг анализа прошёл")
-            # ---
-            return {
-                "tender_summary": tender_context,
-                "document_analyses": document_analyses,
-                "overall_analysis": overall_analysis,
-                "analysis_timestamp": asyncio.get_event_loop().time()
-            }
-        except Exception as e:
-            logger.error(f"[analyzer] ❌ Ошибка в analyze_tender_documents: {e}")
-            print(f"[analyzer] ❌ Ошибка в analyze_tender_documents: {e}")
-            return None
-    
-    def _prepare_tender_context(self, tender_info: Dict) -> Dict:
-        """Подготавливает контекстную информацию о тендере"""
-        try:
-            raw_data = tender_info.get('raw_data', {})
-            
-            return {
-                "customer": tender_info.get('customer', 'Не указан'),
-                "subject": tender_info.get('subject', 'Не указан'),
-                "price": tender_info.get('price', 'Не указана'),
-                "publication_date": tender_info.get('publication_date', 'Не указана'),
-                "submission_deadline": tender_info.get('submission_deadline', 'Не указана'),
-                "status": tender_info.get('status', 'Не указан'),
-                "document_count": tender_info.get('document_count', 0),
-                "raw_data_summary": self._extract_key_info(raw_data)
-            }
-        except Exception as e:
-            logger.error(f"[analyzer] ❌ Ошибка подготовки контекста: {e}")
-            return {"error": "Ошибка обработки данных тендера"}
-    
-    def _extract_key_info(self, raw_data: Dict) -> Dict:
-        """Извлекает ключевую информацию из сырых данных"""
-        try:
-            return {
-                "procurement_type": raw_data.get('ТипЗакупки', 'Не указан'),
-                "procurement_method": raw_data.get('СпособЗакупки', 'Не указан'),
-                "delivery_place": raw_data.get('МестоПоставки', 'Не указано'),
-                "delivery_terms": raw_data.get('СрокПоставки', 'Не указан'),
-                "requirements": raw_data.get('Требования', {}),
-                "conditions": raw_data.get('Условия', {})
-            }
-        except Exception as e:
-            logger.error(f"[analyzer] ❌ Ошибка извлечения ключевой информации: {e}")
-            return {}
-    
-    async def _analyze_single_document(self, file_info: Dict, tender_context: Dict) -> Optional[Dict]:
-        print(f"[analyzer] _analyze_single_document вызван для {file_info.get('original_name')}")
-        logger.info(f"[analyzer] _analyze_single_document вызван для {file_info.get('original_name')}")
-        """Анализирует один документ"""
-        try:
+            return "Документы для анализа не найдены."
+        # 1. Извлекаем тексты
+        texts = []
+        for file_info in downloaded_files:
             file_path = Path(file_info['path'])
-            if not file_path.exists():
-                logger.warning(f"[analyzer] ⚠️ Файл не найден: {file_path}")
-                return None
-            
-            # Читаем содержимое файла
-            content = await self._read_file_content(file_path)
-            if not content:
-                logger.warning(f"[analyzer] ⚠️ Пустое содержимое файла: {file_path}")
-                print(f"[analyzer] ⚠️ Пустое содержимое файла: {file_path}")
-                return None
-            
-            # Создаем промпт для анализа
-            prompt = self._create_analysis_prompt(content, tender_context, file_info['original_name'])
-            logger.info(f"[analyzer] Промпт для GPT (первые 500 символов): {prompt[:500]}")
-            print(f"[analyzer] Промпт для GPT (первые 500 символов): {prompt[:500]}")
-            
-            # Отправляем запрос к OpenAI
-            analysis = await self._call_openai_api(prompt)
-            logger.info(f"[analyzer] Ответ GPT (первые 500 символов): {str(analysis)[:500]}")
-            print(f"[analyzer] Ответ GPT (первые 500 символов): {str(analysis)[:500]}")
-            
-            return {
-                "file_name": file_info['original_name'],
-                "file_size": file_info['size'],
-                "analysis": analysis,
-                "content_preview": content[:500] + "..." if len(content) > 500 else content
-            }
-            
-        except Exception as e:
-            logger.error(f"[analyzer] ❌ Ошибка анализа документа: {e}")
-            print(f"[analyzer] ❌ Ошибка анализа документа: {e}")
-            return None
+            text = await self.extract_text_from_file(file_path)
+            if not text or len(text.strip()) < 100:
+                logger.warning(f"[analyzer] Файл {file_path} проигнорирован (мало текста)")
+                continue
+            # Очистка мусора (футеры, даты, повторяющиеся заголовки)
+            text = self.cleanup_text(text)
+            texts.append((file_info.get('original_name', str(file_path)), text))
+        if not texts:
+            logger.info("[analyzer] Нет подходящих файлов для анализа")
+            return "Нет подходящих файлов для анализа."
+        # 2. Объединяем с метками
+        doc_texts = [f"==== ДОКУМЕНТ: {name} ====" + "\n" + t for name, t in texts]
+        full_text = "\n\n".join(doc_texts)
+        # 3. Обрезаем если слишком длинно (лимит 15000 токенов ≈ 60000 символов)
+        max_len = 60000
+        if len(full_text) > max_len:
+            logger.warning(f"[analyzer] Суммарный текст превышает лимит, будет усечён")
+            # Равномерно сокращаем каждый документ
+            n = len(doc_texts)
+            chunk = max_len // n
+            doc_texts = [t[:chunk] for t in doc_texts]
+            full_text = "\n\n".join(doc_texts)
+        # 4. Формируем промпт
+        prompt = self.make_analysis_prompt(full_text)
+        logger.info(f"[analyzer] Отправляю в OpenAI объединённый промпт длиной {len(prompt)} символов")
+        # 5. Один вызов к OpenAI
+        analysis = await self._call_openai_api(prompt)
+        if not analysis:
+            logger.error("[analyzer] Не удалось получить анализ от OpenAI")
+            return "❌ Не удалось получить анализ тендера. Попробуйте позже."
+        return analysis
     
-    async def _read_file_content(self, file_path: Path) -> Optional[str]:
-        """Читает содержимое файла, поддерживает текст, docx, doc, pdf, xls, xlsx, изображения, архивы"""
-        import subprocess
+    async def extract_text_from_file(self, file_path: Path) -> Optional[str]:
+        """Универсальное извлечение текста из файла (PDF, DOCX, XLSX, ZIP и др.)"""
         ext = file_path.suffix.lower()
         try:
             if ext == '.txt':
@@ -164,21 +82,18 @@ class DocumentAnalyzer:
                 async with aiofiles.open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     return await f.read()
             elif ext == '.docx':
-                import docx2txt
                 return docx2txt.process(str(file_path))
             elif ext == '.doc':
-                # Требуется установленный antiword
+                import subprocess
                 result = subprocess.run(['antiword', str(file_path)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 return result.stdout.decode('utf-8', errors='ignore')
             elif ext == '.pdf':
                 text = ""
-                with open(file_path, 'rb') as file:
-                    pdf_reader = PyPDF2.PdfReader(file)
-                    for page in pdf_reader.pages:
-                        text += page.extract_text() + "\n"
+                with fitz.open(str(file_path)) as doc:
+                    for page in doc:
+                        text += page.get_text()
                 return text
             elif ext in ['.xls', '.xlsx']:
-                import pandas as pd
                 df = pd.read_excel(str(file_path), dtype=str, engine='openpyxl' if ext == '.xlsx' else None)
                 return df.to_string(index=False)
             elif ext in ['.jpg', '.jpeg', '.png']:
@@ -195,7 +110,7 @@ class DocumentAnalyzer:
                             with zf.open(member) as f, tempfile.NamedTemporaryFile(delete=False, suffix=Path(member).suffix) as tmp:
                                 tmp.write(f.read())
                                 tmp_path = Path(tmp.name)
-                            text = await self._read_file_content(tmp_path)
+                            text = await self.extract_text_from_file(tmp_path)
                             if text:
                                 texts.append(f'--- {member} ---\n{text}')
                             tmp_path.unlink(missing_ok=True)
@@ -209,7 +124,7 @@ class DocumentAnalyzer:
                             with rf.open(member) as f, tempfile.NamedTemporaryFile(delete=False, suffix=Path(member).suffix) as tmp:
                                 tmp.write(f.read())
                                 tmp_path = Path(tmp.name)
-                            text = await self._read_file_content(tmp_path)
+                            text = await self.extract_text_from_file(tmp_path)
                             if text:
                                 texts.append(f'--- {member} ---\n{text}')
                             tmp_path.unlink(missing_ok=True)
@@ -217,37 +132,45 @@ class DocumentAnalyzer:
             else:
                 return None
         except Exception as e:
-            logger.error(f'[analyzer] ❌ Ошибка чтения {file_path}: {e}')
+            logger.error(f'[extract_text_from_file] ❌ Ошибка чтения {file_path}: {e}')
             return None
     
-    def _create_analysis_prompt(self, content: str, tender_context: Dict, filename: str) -> str:
-        """
-        Создаёт промпт для анализа документа
-        """
-        # Ограничиваем размер текста документа для GPT (например, 4000 символов)
-        content_short = content[:4000] if content else ''
+    def cleanup_text(self, text: str) -> str:
+        """Удаляет мусор: футеры, даты, повторяющиеся заголовки и т.п."""
+        import re
+        # Удаляем повторяющиеся заголовки
+        lines = text.splitlines()
+        seen = set()
+        cleaned = []
+        for line in lines:
+            l = line.strip()
+            if l and l not in seen:
+                cleaned.append(l)
+                seen.add(l)
+        text = "\n".join(cleaned)
+        # Удаляем даты (простая эвристика)
+        text = re.sub(r'\d{2,4}[./-]\d{2}[./-]\d{2,4}', '', text)
+        # Удаляем футеры (по ключевым словам)
+        text = re.sub(r'страница \d+ из \d+', '', text, flags=re.I)
+        return text
+    
+    def make_analysis_prompt(self, full_text: str) -> str:
+        """Генерирует промпт для объединённого анализа всех документов"""
         return f"""
-Проанализируй документ тендера "{filename}" и предоставь структурированный анализ.
+Ты — эксперт по госзакупкам и анализу тендерной документации.
 
-Контекст тендера:
-- Заказчик: {tender_context.get('customer', 'Не указан')}
-- Предмет: {tender_context.get('subject', 'Не указан')}
-- Цена: {tender_context.get('price', 'Не указана')}
-- Срок подачи: {tender_context.get('submission_deadline', 'Не указан')}
+Вот полный текст всех документов закупки (ТЗ, контракт, приложения и др.), разделённых маркерами ==== ДОКУМЕНТ ====. Проанализируй их комплексно и выполни следующие задачи:
 
-Содержимое документа:
-{content_short}
+1. Дай краткое описание закупки: какие товары/услуги требуются, объёмы, особенности (ГОСТ, фасовка, сорт, единицы измерения, сроки и т.п.).
+2. Определи потенциальные риски и подводные камни для участника закупки (неясности в ТЗ, требования к упаковке, ограничения по поставке, логистике, сертификации и т.д.).
+3. Дай рекомендации: стоит ли участвовать в закупке с учётом этих рисков? Почему да или почему нет?
+4. Сформируй поисковые запросы в Яндексе для каждой товарной позиции, чтобы найти поставщиков в России. Запросы должны быть максимально релевантными для нахождения коммерческих предложений, цен и контактов. Включай: – наименование товара (кратко), – сорт/марку/модель, – ГОСТ/ТУ, – фасовку/упаковку, – объём (если применимо), – ключевые слова: купить, оптом, цена, поставщик.
 
-Пожалуйста, проанализируй документ и предоставь:
-
-1. **Краткое резюме** (2-3 предложения)
-2. **Товарные позиции** (список товаров/услуг)
-3. **Требования к упаковке** (если указаны)
-4. **Требования к сорту/качеству** (если указаны)
-5. **Ключевые требования** (важные условия участия)
-6. **Рекомендации** (стоит ли участвовать, на что обратить внимание)
-
-Формат ответа должен быть структурированным и удобным для чтения.
+Формат ответа:
+Анализ: <...>
+Поисковые запросы:
+1. <позиция>: <поисковый запрос>
+2. ...
 """
     
     async def _call_openai_api(self, prompt: str) -> str:

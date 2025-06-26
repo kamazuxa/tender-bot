@@ -380,6 +380,9 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 session['search_queries'] = search_queries
         # Сохраняем список позиций (для кнопок)
         tender_data = analysis_result.get('raw_data') or overall.get('raw_data')
+        if not tender_data:
+            logger.warning(f"[bot] tender_data is None! analysis_result: {analysis_result}")
+            return
         product_info = tender_data.get('Продукт', {})
         print(f"[bot] tender_data['Продукт']: {product_info}")
         objects = product_info.get('ОбъектыЗак', [])
@@ -488,9 +491,6 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             tender_data = self.user_sessions[user_id]['tender_data']
             
             try:
-                # Обновляем статус кнопки
-                await query.edit_message_reply_markup(reply_markup=None)
-                
                 # Скачиваем документы
                 await context.bot.send_message(chat_id=query.message.chat_id, text="📥 Скачиваю документы...")
                 download_result = await downloader.download_documents(tender_data, reg_number)
@@ -535,9 +535,6 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             formatted_info = self.user_sessions[user_id]['formatted_info']
             
             try:
-                # Обновляем статус кнопки
-                await query.edit_message_reply_markup(reply_markup=None)
-                
                 # Скачиваем документы
                 await context.bot.send_message(chat_id=query.message.chat_id, text="📥 Скачиваю документы...")
                 download_result = await downloader.download_documents(tender_data, reg_number)

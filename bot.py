@@ -352,12 +352,45 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Отправляем основную информацию
-            await update.message.reply_text(
-                f"📋 **Информация о тендере**\n\n{formatted_info}",
-                parse_mode='Markdown',
-                reply_markup=reply_markup
-            )
+            # Разбиваем длинную информацию на части
+            max_length = 4000  # Оставляем запас для Telegram
+            if len(formatted_info) > max_length:
+                # Разбиваем на части
+                parts = []
+                current_part = ""
+                lines = formatted_info.split('\n')
+                
+                for line in lines:
+                    if len(current_part) + len(line) + 1 > max_length:
+                        if current_part:
+                            parts.append(current_part.strip())
+                        current_part = line
+                    else:
+                        current_part += '\n' + line if current_part else line
+                
+                if current_part:
+                    parts.append(current_part.strip())
+                
+                # Отправляем первую часть с кнопками
+                await update.message.reply_text(
+                    f"📋 **Информация о тендере** (часть 1 из {len(parts)}):\n\n{parts[0]}",
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+                
+                # Отправляем остальные части
+                for i, part in enumerate(parts[1:], 2):
+                    await update.message.reply_text(
+                        f"📋 **Продолжение информации** (часть {i} из {len(parts)}):\n\n{part}",
+                        parse_mode='Markdown'
+                    )
+            else:
+                # Отправляем основную информацию одним сообщением
+                await update.message.reply_text(
+                    f"📋 **Информация о тендере**\n\n{formatted_info}",
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
             
         except Exception as e:
             logger.error(f"[bot] Ошибка при отправке информации о тендере: {e}")

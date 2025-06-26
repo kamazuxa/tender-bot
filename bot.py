@@ -544,7 +544,9 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     if download_result['files']:
                         await context.bot.send_message(chat_id=query.message.chat_id, text="🤖 Анализирую документы с помощью ИИ...")
                         analysis_result = await self._analyze_documents(formatted_info, download_result['files'])
-                        
+                        if not analysis_result:
+                            # Ошибка уже обработана и сообщение отправлено
+                            return
                         # Отправляем анализ
                         await self._send_analysis_to_chat(context.bot, query.message.chat_id, analysis_result)
                     else:

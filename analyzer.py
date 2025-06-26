@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 print("[analyzer] analyzer.py импортирован")
@@ -24,20 +23,6 @@ import fitz  # PyMuPDF
 import docx2txt
 import pandas as pd
 import hashlib
-import json
-
-def compute_text_sha256(text: str) -> str:
-    return hashlib.sha256(text.encode('utf-8')).hexdigest()
-
-TENDER_CACHE_PATH = Path("/mnt/data/tender_cache.json")
-# Создаём директорию, если её нет
-TENDER_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-try:
-    with open(TENDER_CACHE_PATH, "r", encoding="utf-8") as f:
-        tender_cache = json.load(f)
-except FileNotFoundError:
-    tender_cache = {}
-
 
 logger = logging.getLogger(__name__)
 
@@ -70,11 +55,6 @@ class DocumentAnalyzer:
             except Exception as e:
                 logger.error(f"[analyzer] Ошибка при обработке {file_path}: {e}")
         full_text = "\n\n".join(full_chunks)
-        hash_key = compute_text_sha256(full_text)
-        if hash_key in tender_cache:
-            logger.info("[analyzer] ✅ Найден анализ в JSON-кэше")
-            return tender_cache[hash_key]
-    
         logger.info(f"[analyzer] Итоговый full_text длина: {len(full_text)}")
         logger.info(f"[analyzer] Итоговый full_text первые 500 символов: {full_text[:500]}")
 
@@ -84,16 +64,7 @@ class DocumentAnalyzer:
             logger.info("[analyzer] Текст помещается в лимит, отправляем одним запросом")
             summary = await self._analyze_single(full_text, tender_info)
             search_queries = parse_search_queries_from_gpt(summary)
-            
-        tender_cache[hash_key] = {
-            "summary": summary,
-            "queries": search_queries,
-            "created_at": datetime.now().isoformat()
-        }
-        with open(TENDER_CACHE_PATH, "w", encoding="utf-8") as f:
-            json.dump(tender_cache, f, ensure_ascii=False, indent=2)
-    
-        return {"overall_analysis": {"summary": summary}, "raw_data": tender_info, "search_queries": search_queries}
+            return {"overall_analysis": {"summary": summary}, "raw_data": tender_info, "search_queries": search_queries}
         # Иначе — разбиваем на чанки
         logger.warning("[analyzer] Текст превышает лимит, разбиваем на части")
         if progress_callback:
@@ -126,15 +97,6 @@ class DocumentAnalyzer:
         summary_prompt = "Вот анализы по частям:\n" + "\n\n".join(analyses) + "\n\nСделай общий вывод по тендеру, объединив все части, и выполни все пункты анализа как обычно."
         summary = await self._analyze_single(summary_prompt, tender_info, is_summary=True)
         search_queries = parse_search_queries_from_gpt(summary)
-        
-        tender_cache[hash_key] = {
-            "summary": summary,
-            "queries": search_queries,
-            "created_at": datetime.now().isoformat()
-        }
-        with open(TENDER_CACHE_PATH, "w", encoding="utf-8") as f:
-            json.dump(tender_cache, f, ensure_ascii=False, indent=2)
-    
         return {"overall_analysis": {"summary": summary}, "raw_data": tender_info, "search_queries": search_queries}
 
     async def _analyze_single(self, text, tender_info, part_num=None, total_parts=None, is_summary=False):

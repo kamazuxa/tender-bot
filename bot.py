@@ -1012,7 +1012,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             print("📝 Логи сохраняются в файл:", LOG_FILE)
             self.app.run_polling()
         except Exception as e:
-            logger.error(f"❌ Ошибка запуска бота: {e}")
+            logger.error(f"❌ Ошибкаа запуска бота {e}")
             raise
 
     async def _generate_supplier_queries(self, formatted_info):

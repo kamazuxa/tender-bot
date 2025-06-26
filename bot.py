@@ -334,14 +334,33 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 )
                 return
                 
-            formatted_info = damia_client.format_tender_info(tender_info)
+            formatted_data = damia_client.format_tender_info(tender_info)
             user_id = update.effective_user.id
             
             # Обновляем сессию пользователя
             if user_id in self.user_sessions:
                 self.user_sessions[user_id]['tender_data'] = tender_info
-                self.user_sessions[user_id]['formatted_info'] = formatted_info
+                self.user_sessions[user_id]['formatted_info'] = formatted_data
                 self.user_sessions[user_id]['status'] = 'ready_for_analysis'
+            
+            # Преобразуем словарь в строку для отображения
+            formatted_info = f"""
+📋 **Информация о тендере**
+
+📊 **Статус:** {formatted_data.get('status', 'Не указан')}
+📋 **Федеральный закон:** {formatted_data.get('federal_law', 'Не указан')}-ФЗ
+🏢 **Заказчик:** {formatted_data.get('customer', 'Не указан')}
+📝 **ИНН:** {formatted_data.get('customer_inn', 'Не указан')}
+📍 **Адрес:** {formatted_data.get('customer_address', 'Не указан')}
+📄 **Предмет поставки:** {formatted_data.get('subject', 'Не указан')}
+💰 **Цена:** {formatted_data.get('price', 'Не указана')}
+📅 **Дата публикации:** {formatted_data.get('publication_date', 'Не указана')}
+⏰ **Срок подачи до:** {formatted_data.get('submission_deadline', 'Не указана')}
+📍 **Место поставки:** {formatted_data.get('delivery_place', 'Не указано')}
+🏛️ **ЭТП:** {formatted_data.get('etp_name', 'Не указана')}
+📞 **Контакты:** {formatted_data.get('contact_person', 'Не указано')} | {formatted_data.get('contact_phone', 'Не указан')}
+📧 **Email:** {formatted_data.get('contact_email', 'Не указан')}
+"""
             
             # Создаем клавиатуру с кнопками
             keyboard = [

@@ -1,4 +1,5 @@
 import logging
+logging.basicConfig(level=logging.INFO)
 import asyncio
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup

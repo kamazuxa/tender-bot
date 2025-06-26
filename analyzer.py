@@ -1,4 +1,7 @@
 import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+print("[analyzer] analyzer.py импортирован")
 import asyncio
 from typing import Dict, List, Optional
 from pathlib import Path
@@ -26,14 +29,18 @@ class DocumentAnalyzer:
         self.client = OpenAI(api_key=api_key)
     
     async def analyze_tender_documents(self, tender_info: Dict, downloaded_files: List[Dict]) -> Dict:
+        print("[analyzer] analyze_tender_documents вызван")
+        logger.info("[analyzer] analyze_tender_documents вызван")
         """
         Анализирует документы тендера с помощью OpenAI
         """
         if not downloaded_files:
             logger.info("[analyzer] 📄 Нет документов для анализа")
+            print("[analyzer] 📄 Нет документов для анализа")
             return self._create_empty_analysis()
         
         logger.info(f"[analyzer] 🤖 Начинаем анализ {len(downloaded_files)} документов")
+        print(f"[analyzer] 🤖 Начинаем анализ {len(downloaded_files)} документов")
         
         try:
             # Подготавливаем контекст о тендере
@@ -52,6 +59,7 @@ class DocumentAnalyzer:
             # Создаем общий анализ
             overall_analysis = await self._create_overall_analysis(tender_info, document_analyses)
             logger.info(f"[analyzer] ✅ Общий анализ: {overall_analysis}")
+            print(f"[analyzer] ✅ Общий анализ: {overall_analysis}")
             
             return {
                 "tender_summary": tender_context,
@@ -61,6 +69,7 @@ class DocumentAnalyzer:
             }
         except Exception as e:
             logger.error(f"[analyzer] ❌ Ошибка в analyze_tender_documents: {e}")
+            print(f"[analyzer] ❌ Ошибка в analyze_tender_documents: {e}")
             return None
     
     def _prepare_tender_context(self, tender_info: Dict) -> Dict:
@@ -98,6 +107,8 @@ class DocumentAnalyzer:
             return {}
     
     async def _analyze_single_document(self, file_info: Dict, tender_context: Dict) -> Optional[Dict]:
+        print(f"[analyzer] _analyze_single_document вызван для {file_info.get('original_name')}")
+        logger.info(f"[analyzer] _analyze_single_document вызван для {file_info.get('original_name')}")
         """Анализирует один документ"""
         try:
             file_path = Path(file_info['path'])
@@ -109,15 +120,18 @@ class DocumentAnalyzer:
             content = await self._read_file_content(file_path)
             if not content:
                 logger.warning(f"[analyzer] ⚠️ Пустое содержимое файла: {file_path}")
+                print(f"[analyzer] ⚠️ Пустое содержимое файла: {file_path}")
                 return None
             
             # Создаем промпт для анализа
             prompt = self._create_analysis_prompt(content, tender_context, file_info['original_name'])
             logger.info(f"[analyzer] Промпт для GPT (первые 500 символов): {prompt[:500]}")
+            print(f"[analyzer] Промпт для GPT (первые 500 символов): {prompt[:500]}")
             
             # Отправляем запрос к OpenAI
             analysis = await self._call_openai_api(prompt)
             logger.info(f"[analyzer] Ответ GPT (первые 500 символов): {str(analysis)[:500]}")
+            print(f"[analyzer] Ответ GPT (первые 500 символов): {str(analysis)[:500]}")
             
             return {
                 "file_name": file_info['original_name'],
@@ -128,6 +142,7 @@ class DocumentAnalyzer:
             
         except Exception as e:
             logger.error(f"[analyzer] ❌ Ошибка анализа документа: {e}")
+            print(f"[analyzer] ❌ Ошибка анализа документа: {e}")
             return None
     
     async def _read_file_content(self, file_path: Path) -> Optional[str]:
@@ -223,8 +238,11 @@ class DocumentAnalyzer:
 """
     
     async def _call_openai_api(self, prompt: str) -> str:
+        print("[analyzer] _call_openai_api вызван")
+        logger.info("[analyzer] _call_openai_api вызван")
         try:
             logger.info(f"[analyzer] Отправляю в OpenAI prompt длиной {len(prompt)} символов")
+            print(f"[analyzer] Отправляю в OpenAI prompt длиной {len(prompt)} символов")
             response = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: self.client.chat.completions.create(
@@ -236,9 +254,11 @@ class DocumentAnalyzer:
             )
             answer = response.choices[0].message.content
             logger.info(f"[analyzer] Ответ OpenAI (первые 500 символов): {answer[:500]}")
+            print(f"[analyzer] Ответ OpenAI (первые 500 символов): {answer[:500]}")
             return answer
         except Exception as e:
             logger.error(f"[analyzer] ❌ Ошибка при обращении к OpenAI: {e}")
+            print(f"[analyzer] ❌ Ошибка при обращении к OpenAI: {e}")
             return None
     
     async def _setup_vpn_connection(self):

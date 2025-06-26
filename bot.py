@@ -345,6 +345,10 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         # Возвращаем analysis_result с полями 'overall_analysis', 'search_queries', 'raw_data'
     
     async def _send_analysis_to_chat(self, bot, chat_id: int, analysis_result: dict) -> None:
+        if not analysis_result:
+            logger.error("[bot] analysis_result is None! Не удалось проанализировать тендер.")
+            await bot.send_message(chat_id=chat_id, text="❌ Не удалось проанализировать тендер. Попробуйте позже.")
+            return
         overall = analysis_result.get('overall_analysis', {})
         summary = overall.get('summary', 'Анализ недоступен')
         

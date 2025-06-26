@@ -197,7 +197,7 @@ class DocumentAnalyzer:
             for idx, block in enumerate(blocks):
                 messages.append({
                     "role": "user",
-                    "content": f"==== ДОКУМЕНТ {idx+1} ===="\n{block}"
+                    "content": f"==== ДОКУМЕНТ {idx+1} ====\n{block}"
                 })
             logger.info(f"[analyzer] Всего блоков для OpenAI: {len(blocks)}")
             for i, m in enumerate(messages):

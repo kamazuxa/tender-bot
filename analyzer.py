@@ -22,6 +22,7 @@ except ImportError:
 import fitz  # PyMuPDF
 import docx2txt
 import pandas as pd
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -32,49 +33,79 @@ class DocumentAnalyzer:
         self.client = OpenAI(api_key=api_key)
     
     async def analyze_tender_documents(self, tender_info: Dict, downloaded_files: List[Dict]) -> str:
-        print("[analyzer] analyze_tender_documents (объединённый режим) вызван")
-        logger.info("[analyzer] analyze_tender_documents (объединённый режим) вызван")
+        print("[analyzer] analyze_tender_documents (эконом режим) вызван")
+        logger.info("[analyzer] analyze_tender_documents (эконом режим) вызван")
         if not downloaded_files:
             logger.info("[analyzer] 📄 Нет документов для анализа")
             return "Документы для анализа не найдены."
-        # 1. Извлекаем тексты
-        texts = []
+        # 1. Извлекаем тексты и собираем full_text
+        full_chunks = []
         for file_info in downloaded_files:
             file_path = Path(file_info['path'])
-            text = await self.extract_text_from_file(file_path)
-            logger.info(f"[analyzer] {file_path} — длина текста: {len(text) if text else 0}")
-            logger.info(f"[analyzer] {file_path} — первые 200 символов: {text[:200] if text else 'ПУСТО'}")
-            if not text or len(text.strip()) < 100:
-                logger.warning(f"[analyzer] Файл {file_path} проигнорирован (мало текста)")
-                continue
-            # Очистка мусора (футеры, даты, повторяющиеся заголовки)
-            text = self.cleanup_text(text)
-            texts.append((file_info.get('original_name', str(file_path)), text))
-        if not texts:
-            logger.info("[analyzer] Нет подходящих файлов для анализа")
-            return "Нет подходящих файлов для анализа."
-        # 2. Объединяем с метками
-        doc_texts = [f"==== ДОКУМЕНТ: {name} ====\n" + t for name, t in texts]
-        # 3. Разбиваем на блоки по 10_000 символов
-        chunk_size = 10000
-        blocks = []
-        for doc in doc_texts:
-            for i in range(0, len(doc), chunk_size):
-                blocks.append(doc[i:i+chunk_size])
-        logger.info(f"[analyzer] Всего блоков для OpenAI: {len(blocks)}")
-        # 4. Если блоков слишком много (>12), оставляем только первые 12
-        max_blocks = 12
-        if len(blocks) > max_blocks:
-            logger.warning(f"[analyzer] Слишком много блоков ({len(blocks)}), будут отправлены только первые {max_blocks}")
-            blocks = blocks[:max_blocks]
-        for i, block in enumerate(blocks):
-            logger.info(f"[analyzer] block[{i}] длина: {len(block)} первые 200: {block[:200]}")
-        # 5. Отправляем blocks в _call_openai_api
-        analysis = await self._call_openai_api(blocks)
-        if not analysis:
-            logger.error("[analyzer] Не удалось получить анализ от OpenAI")
-            return "❌ Не удалось получить анализ тендера. Попробуйте позже."
-        return analysis
+            try:
+                text = await self.extract_text_from_file(file_path)
+                if not text or len(text.strip()) < 50:
+                    logger.warning(f"[analyzer] Пустой или слишком короткий текст: {file_path}")
+                    continue
+                header = f"==== ДОКУМЕНТ: {file_info.get('original_name', str(file_path))} ====\n{text.strip()}\n"
+                full_chunks.append(header)
+                logger.info(f"[analyzer] {file_path} — длина текста: {len(text)}")
+                logger.info(f"[analyzer] {file_path} — первые 200 символов: {text.strip()[:200]}")
+            except Exception as e:
+                logger.error(f"[analyzer] Ошибка при обработке {file_path}: {e}")
+        full_text = "\n\n".join(full_chunks)
+        logger.info(f"[analyzer] Итоговый full_text длина: {len(full_text)}")
+        logger.info(f"[analyzer] Итоговый full_text первые 500 символов: {full_text[:500]}")
+        # 2. Обрезаем если слишком длинно (лимит 120000 символов)
+        if len(full_text) > 120000:
+            logger.warning("[analyzer] Суммарный текст превышает лимит, будет усечён")
+            full_text = full_text[:120000]
+        # 3. Кеширование по хешу full_text
+        cache_key = hashlib.sha256(full_text.encode('utf-8')).hexdigest()
+        cache_file = Path(f"analysis_cache/{cache_key}.txt")
+        if cache_file.exists():
+            logger.info(f"[analyzer] Найден кеш анализа по хешу: {cache_key}")
+            return cache_file.read_text(encoding='utf-8')
+        # 4. Формируем messages
+        prompt_instructions = (
+            "Проанализируй их комплексно и выполни следующие задачи:\n\n"
+            "1. Дай краткое описание закупки: какие товары/услуги требуются, объёмы, особенности (ГОСТ, фасовка, сорт, единицы измерения, сроки и т.п.).\n"
+            "2. Определи потенциальные риски и подводные камни для участника закупки (неясности в ТЗ, требования к упаковке, ограничения по поставке, логистике, сертификации и т.д.).\n"
+            "3. Дай рекомендации: стоит ли участвовать в закупке с учётом этих рисков? Почему да или почему нет?\n"
+            "4. Сформируй поисковые запросы в Яндексе для каждой товарной позиции, чтобы найти поставщиков в России. Запросы должны быть максимально релевантными для нахождения коммерческих предложений, цен и контактов. Включай: – наименование товара (кратко), – сорт/марку/модель, – ГОСТ/ТУ, – фасовку/упаковку, – объём (если применимо), – ключевые слова: купить, оптом, цена, поставщик.\n\n"
+            "Формат ответа:\n"
+            "Анализ: <...>\n"
+            "Поисковые запросы:\n"
+            "1. <позиция>: <поисковый запрос>\n"
+            "2. ..."
+        )
+        messages = [
+            {"role": "system", "content": "Ты — эксперт по госзакупкам и анализу тендерной документации."},
+            {"role": "user", "content": full_text},
+            {"role": "user", "content": prompt_instructions}
+        ]
+        logger.info(f"[analyzer] messages[1] length: {len(full_text)}")
+        logger.info(f"[analyzer] prompt preview (messages[2]): {prompt_instructions[:500]}")
+        # 5. Отправляем в OpenAI
+        try:
+            response = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    temperature=0.4,
+                    max_tokens=2048
+                )
+            )
+            answer = response.choices[0].message.content.strip()
+            logger.info(f"[analyzer] Ответ OpenAI (первые 500 символов): {answer[:500]}")
+            # 6. Сохраняем в кеш
+            cache_file.parent.mkdir(exist_ok=True)
+            cache_file.write_text(answer, encoding='utf-8')
+            return answer
+        except Exception as e:
+            logger.error(f"[analyzer] Ошибка запроса к OpenAI: {e}")
+            return f"❌ Ошибка запроса к OpenAI: {e}"
     
     async def extract_text_from_file(self, file_path: Path) -> Optional[str]:
         """Универсальное извлечение текста из файла (PDF, DOCX, XLSX, ZIP и др.)"""

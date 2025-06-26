@@ -30,6 +30,8 @@ def compute_text_sha256(text: str) -> str:
     return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
 TENDER_CACHE_PATH = Path("/mnt/data/tender_cache.json")
+# Создаём директорию, если её нет
+TENDER_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
 try:
     with open(TENDER_CACHE_PATH, "r", encoding="utf-8") as f:
         tender_cache = json.load(f)

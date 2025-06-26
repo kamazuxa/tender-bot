@@ -6,6 +6,7 @@
 import asyncio
 import logging
 from pathlib import Path
+import os
 
 # Настройка логирования для тестов
 logging.basicConfig(level=logging.INFO)
@@ -158,28 +159,30 @@ async def test_full_analysis():
     """Тестирует полный анализ тендера с логированием для диагностики"""
     print("🧠 Тест полного анализа тендера (GPT + парсинг)...")
     try:
-        from analyzer import analyzer
+        from analyzer import analyze_tender_documents
         import logging
         logger = logging.getLogger(__name__)
 
-        # Пример тестового текста (или путь к файлу)
+        # Пример тестового файла
+        test_filename = "test.txt"
         test_text = "Поставка моркови, фасовка 25 кг, ГОСТ 12345-67, объем 10 тонн, срок поставки 10 дней."
-        # Логируем промпт (если есть функция создания промпта)
-        if hasattr(analyzer, '_create_analysis_prompt'):
-            prompt = analyzer._create_analysis_prompt(test_text, {}, "test.txt")
-            logger.info(f"[test] Промпт для GPT: {prompt[:500]}... (длина: {len(prompt)})")
-        # Вызов анализа (асинхронно)
-        if hasattr(analyzer, 'analyze_text'):
-            analysis_result = await analyzer.analyze_text(test_text)
-        else:
-            print("❌ analyzer.analyze_text не реализован")
-            return False
+        with open(test_filename, "w", encoding="utf-8") as f:
+            f.write(test_text)
+        downloaded_files = [{
+            'path': test_filename,
+            'original_name': test_filename,
+            'size': os.path.getsize(test_filename),
+        }]
+        tender_info = {}
+        analysis_result = await analyze_tender_documents(tender_info, downloaded_files)
         logger.info(f"[test] Сырой ответ анализа: {analysis_result}")
         if not analysis_result:
             print("❌ analysis_result is None! Не удалось проанализировать тестовый тендер.")
             return False
         logger.info(f"[test] Итоговый разбор анализа: {analysis_result}")
         print("✅ Анализ тендера и логирование работают")
+        # Удаляем тестовый файл
+        os.remove(test_filename)
         return True
     except Exception as e:
         print(f"❌ Ошибка теста полного анализа: {e}")

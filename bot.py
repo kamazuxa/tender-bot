@@ -237,7 +237,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик текстовых сообщений"""
         user = update.effective_user
-        message = update.message.text.strip()
+    message = update.message.text.strip()
         
         logger.info(f"[bot] Получено сообщение от {user.id}: {message[:50]}...")
         
@@ -473,8 +473,8 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             reg_number = query.data.split("_")[1]
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
-                return
-            
+        return
+
             # Получаем данные из сессии
             formatted_info = self.user_sessions[user_id]['formatted_info']
             
@@ -485,8 +485,8 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             reg_number = query.data.split("_")[1]
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
-                return
-            
+        return
+
             # Получаем данные из сессии
             tender_data = self.user_sessions[user_id]['tender_data']
             
@@ -535,7 +535,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             formatted_info = self.user_sessions[user_id]['formatted_info']
             
             try:
-                # Скачиваем документы
+    # Скачиваем документы
                 await context.bot.send_message(chat_id=query.message.chat_id, text="📥 Скачиваю документы...")
                 download_result = await downloader.download_documents(tender_data, reg_number)
                 

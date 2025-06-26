@@ -69,6 +69,7 @@ class DocumentAnalyzer:
             full_text = "\n\n".join(doc_texts)
         # 4. Формируем промпт
         prompt = self.make_analysis_prompt(full_text)
+        logger.info(f"DEBUG prompt preview: {prompt[:2000]}")
         logger.info(f"[analyzer] Отправляю в OpenAI объединённый промпт длиной {len(prompt)} символов")
         # 5. Один вызов к OpenAI
         analysis = await self._call_openai_api(prompt)

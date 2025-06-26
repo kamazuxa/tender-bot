@@ -42,6 +42,8 @@ class DocumentAnalyzer:
         for file_info in downloaded_files:
             file_path = Path(file_info['path'])
             text = await self.extract_text_from_file(file_path)
+            logger.info(f"[analyzer] {file_path} — длина текста: {len(text) if text else 0}")
+            logger.info(f"[analyzer] {file_path} — первые 200 символов: {text[:200] if text else 'ПУСТО'}")
             if not text or len(text.strip()) < 100:
                 logger.warning(f"[analyzer] Файл {file_path} проигнорирован (мало текста)")
                 continue
@@ -54,6 +56,8 @@ class DocumentAnalyzer:
         # 2. Объединяем с метками
         doc_texts = [f"==== ДОКУМЕНТ: {name} ====" + "\n" + t for name, t in texts]
         full_text = "\n\n".join(doc_texts)
+        logger.info(f"[analyzer] Итоговый full_text длина: {len(full_text)}")
+        logger.info(f"[analyzer] Итоговый full_text первые 500 символов: {full_text[:500]}")
         # 3. Обрезаем если слишком длинно (лимит 15000 токенов ≈ 60000 символов)
         max_len = 60000
         if len(full_text) > max_len:

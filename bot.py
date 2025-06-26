@@ -389,6 +389,10 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
     
     async def _send_analysis(self, update: Update, analysis_result: dict) -> None:
         """Отправляет результаты анализа"""
+        if not analysis_result:
+            logger.error(f"[bot] analysis_result is None! Не удалось проанализировать тендер. analysis_result: {analysis_result}")
+            await update.message.reply_text("❌ Не удалось проанализировать тендер. Попробуйте позже.")
+            return
         overall = analysis_result.get('overall_analysis', {})
         summary = overall.get('summary', 'Анализ недоступен')
         

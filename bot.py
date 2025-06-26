@@ -239,14 +239,9 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         user = update.effective_user
         message = update.message.text.strip()
         logger.info(f"[bot] Получено сообщение от {user.id}: {message[:50]}...")
-        
-        # Отправляем статус "печатает"
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
-        
         try:
-            # Извлекаем номер тендера
             reg_number = extract_tender_number(message)
-            
             if not reg_number:
                 await update.message.reply_text(
                     "❗ Пожалуйста, укажите корректный регистрационный номер закупки (19-20 цифр) или ссылку на тендер.\n\n"
@@ -255,40 +250,29 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     "• https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=0123456789012345678"
                 )
                 return
-            
-            # Сохраняем сессию пользователя
             self.user_sessions[user.id] = {
                 'reg_number': reg_number,
                 'timestamp': datetime.now(),
                 'status': 'processing'
             }
-            
             await update.message.reply_text(f"🔍 Ищу тендер {reg_number}...")
-            
-            # Получаем данные о тендере
             tender_data = await damia_client.get_tender_info(reg_number)
+            # --- ВСТАВКА: распаковка по номеру тендера ---
+            if tender_data and len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
+                tender_data = list(tender_data.values())[0]
+            # --- КОНЕЦ ВСТАВКИ ---
             logger.info(f"Ответ DaMIA: {tender_data}")
-            
             if not tender_data:
                 await update.message.reply_text(
                     f"❌ Не удалось найти тендер с номером {reg_number}.\n"
                     "Проверьте правильность номера или попробуйте позже."
                 )
                 return
-            
-            # Форматируем информацию о тендере
             formatted_info = damia_client.format_tender_info(tender_data)
-            
-            # Сохраняем данные тендера в сессии для последующего анализа
             self.user_sessions[user.id]['tender_data'] = tender_data
             self.user_sessions[user.id]['formatted_info'] = formatted_info
-            
-            # Отправляем основную информацию с кнопками
             await self._send_tender_info(update, formatted_info, reg_number)
-            
-            # Обновляем статус сессии
             self.user_sessions[user.id]['status'] = 'ready_for_analysis'
-            
         except Exception as e:
             logger.error(f"[bot] Ошибка обработки сообщения: {e}")
             await update.message.reply_text(
@@ -374,7 +358,6 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             return
         overall = analysis_result.get('overall_analysis', {})
         summary = overall.get('summary', 'Анализ недоступен')
-        
         # Разбиваем длинный анализ на части
         if len(summary) > 4000:
             parts = [summary[i:i+4000] for i in range(0, len(summary), 4000)]
@@ -385,27 +368,19 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     await bot.send_message(chat_id=chat_id, text=f"🤖 **Продолжение анализа** (часть {i+1}/{len(parts)}):\n\n{part}", parse_mode='Markdown')
         else:
             await bot.send_message(chat_id=chat_id, text=f"🤖 **Анализ тендера:**\n\n{summary}", parse_mode='Markdown')
-        
-        # Сохраняем поисковые запросы в сессию пользователя
+        # --- Новый блок: сохраняем поисковые запросы GPT и строим кнопки только по ним ---
         search_queries = analysis_result.get('search_queries', {})
         for user_id, session in self.user_sessions.items():
             if session.get('status') in ['ready_for_analysis', 'completed']:
                 session['search_queries'] = search_queries
-        # Сохраняем список позиций (для кнопок)
-        tender_data = analysis_result.get('raw_data') or overall.get('raw_data')
-        if not tender_data:
-            logger.warning(f"[bot] tender_data is None! analysis_result: {analysis_result}")
+        if not search_queries:
+            await bot.send_message(chat_id=chat_id, text="❌ Не удалось выделить товарные позиции из анализа. Попробуйте другой тендер или обратитесь к администратору.")
             return
-        product_info = tender_data.get('Продукт', {})
-        print(f"[bot] tender_data['Продукт']: {product_info}")
-        objects = product_info.get('ОбъектыЗак', [])
-        print(f"[bot] product_info['ОбъектыЗак']: {objects}")
-        for user_id, session in self.user_sessions.items():
-            if session.get('status') in ['ready_for_analysis', 'completed']:
-                session['objects'] = objects
-        # После анализа добавляем кнопку поиска поставщиков
-        keyboard = [[InlineKeyboardButton("🔎 Найти поставщиков", callback_data="find_suppliers")]]
-        await bot.send_message(chat_id=chat_id, text="Хотите найти поставщиков по результатам анализа?", reply_markup=InlineKeyboardMarkup(keyboard))
+        keyboard = []
+        for idx, (position, query) in enumerate(search_queries.items()):
+            # position — название товара, query — поисковый запрос
+            keyboard.append([InlineKeyboardButton(position, callback_data=f"find_supplier_{idx}")])
+        await bot.send_message(chat_id=chat_id, text="Выберите товарную позицию для поиска поставщика:", reply_markup=InlineKeyboardMarkup(keyboard))
     
     async def _send_analysis(self, update: Update, analysis_result: dict) -> None:
         """Отправляет результаты анализа"""
@@ -589,19 +564,17 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             # Обновляем сообщение с новой страницей документов
             await self._update_documents_message(context.bot, query.message.chat_id, query.message.message_id, tender_data, reg_number, page)
         elif query.data == "find_suppliers":
-            # После анализа: выводим кнопки по всем товарным позициям
+            # После анализа: выводим кнопки по всем товарным позициям (только по GPT)
             if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
-            objects = self.user_sessions[user_id].get('objects', [])
-            if not objects:
-                await query.edit_message_text("В этом тендере отсутствуют товарные позиции. Возможно, это закупка услуг или данные не заполнены.")
+            search_queries = self.user_sessions[user_id].get('search_queries', {})
+            if not search_queries:
+                await query.edit_message_text("В этом тендере отсутствуют товарные позиции (ИИ не выделил их из анализа). Возможно, это закупка услуг или данные не заполнены.")
                 return
-            # Показываем кнопки с позициями
             keyboard = []
-            for idx, obj in enumerate(objects):
-                name = obj.get('Наименование', f'Позиция {idx+1}')
-                keyboard.append([InlineKeyboardButton(name, callback_data=f"find_supplier_{idx}")])
+            for idx, (position, query_text) in enumerate(search_queries.items()):
+                keyboard.append([InlineKeyboardButton(position, callback_data=f"find_supplier_{idx}")])
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text="Выберите товарную позицию для поиска поставщика:",
@@ -612,17 +585,14 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
                 return
             idx = int(query.data.split('_')[-1])
-            objects = self.user_sessions[user_id].get('objects', [])
-            if idx >= len(objects):
+            search_queries = self.user_sessions[user_id].get('search_queries', {})
+            if idx >= len(search_queries):
                 await query.edit_message_text("❌ Позиция не найдена.")
                 return
-            obj = objects[idx]
-            name = obj.get('Наименование', '')
-            # Берём поисковый запрос, сгенерированный ИИ для этой позиции при анализе
-            search_queries = self.user_sessions[user_id].get('search_queries', {})
-            search_query = search_queries.get(idx, name)
-            logger.info(f"[bot] Поисковый запрос для SerpAPI по позиции '{name}': {search_query}")
-            await query.edit_message_text(f"🔎 Ищу поставщиков по позиции: {name} (по запросу: {search_query})...")
+            position = list(search_queries.keys())[idx]
+            search_query = list(search_queries.values())[idx]
+            logger.info(f"[bot] Поисковый запрос для SerpAPI по позиции '{position}': {search_query}")
+            await query.edit_message_text(f"🔎 Ищу поставщиков по позиции: {position} (по запросу: {search_query})...")
             search_results = await self._search_suppliers_serpapi(search_query)
             gpt_result = await self._extract_suppliers_gpt_ranked(search_query, search_results)
             await context.bot.send_message(chat_id=query.message.chat_id, text=gpt_result, parse_mode='HTML')

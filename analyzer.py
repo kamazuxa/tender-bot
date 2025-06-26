@@ -37,7 +37,7 @@ class DocumentAnalyzer:
         logger.info("[analyzer] analyze_tender_documents (эконом режим) вызван")
         if not downloaded_files:
             logger.info("[analyzer] 📄 Нет документов для анализа")
-            return {"overall_analysis": {"summary": "Документы для анализа не найдены"}, "raw_data": tender_info}
+            return {"overall_analysis": {"summary": "Документы для анализа не найдены"}, "raw_data": tender_info, "search_queries": {}}
         # 1. Извлекаем тексты и собираем full_text
         full_chunks = []
         for file_info in downloaded_files:
@@ -63,7 +63,8 @@ class DocumentAnalyzer:
         if len(full_text) <= MAX_LEN:
             logger.info("[analyzer] Текст помещается в лимит, отправляем одним запросом")
             summary = await self._analyze_single(full_text, tender_info)
-            return {"overall_analysis": {"summary": summary}, "raw_data": tender_info}
+            search_queries = parse_search_queries_from_gpt(summary)
+            return {"overall_analysis": {"summary": summary}, "raw_data": tender_info, "search_queries": search_queries}
         # Иначе — разбиваем на чанки
         logger.warning("[analyzer] Текст превышает лимит, разбиваем на части")
         if progress_callback:
@@ -95,7 +96,8 @@ class DocumentAnalyzer:
             await progress_callback("🤖 Формируется итоговый анализ по всем частям...")
         summary_prompt = "Вот анализы по частям:\n" + "\n\n".join(analyses) + "\n\nСделай общий вывод по тендеру, объединив все части, и выполни все пункты анализа как обычно."
         summary = await self._analyze_single(summary_prompt, tender_info, is_summary=True)
-        return {"overall_analysis": {"summary": summary}, "raw_data": tender_info}
+        search_queries = parse_search_queries_from_gpt(summary)
+        return {"overall_analysis": {"summary": summary}, "raw_data": tender_info, "search_queries": search_queries}
 
     async def _analyze_single(self, text, tender_info, part_num=None, total_parts=None, is_summary=False):
         prompt_instructions = (
@@ -398,6 +400,30 @@ def shrink_text(text: str, max_len: int = 15000) -> str:
     if len(result) > 20000:
         return result[:10000] + '\n...\n' + result[-5000:]
     return result
+
+def parse_search_queries_from_gpt(text: str) -> dict:
+    """
+    Парсит раздел 'Поисковые запросы' из ответа GPT и возвращает dict: {позиция: поисковый запрос}
+    Ожидает формат:
+    Поисковые запросы:
+    1. <позиция>: <поисковый запрос>
+    2. ...
+    """
+    import re
+    queries = {}
+    # Находим раздел
+    m = re.search(r'Поисковые запросы\s*:?\s*(.+)', text, re.DOTALL | re.IGNORECASE)
+    if not m:
+        return queries
+    block = m.group(1)
+    # Парсим строки вида 1. <позиция>: <поисковый запрос>
+    for line in block.splitlines():
+        line = line.strip()
+        m2 = re.match(r'\d+\.\s*(.+?):\s*(.+)', line)
+        if m2:
+            position, query = m2.groups()
+            queries[position.strip()] = query.strip()
+    return queries
 
 # Создаем глобальный экземпляр анализатора
 analyzer = DocumentAnalyzer(OPENAI_API_KEY)

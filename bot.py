@@ -235,75 +235,139 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             await update.message.reply_text("❌ Ошибка при очистке файлов")
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обработчик текстовых сообщений"""
-        user = update.effective_user
-        message = update.message.text.strip()
-        logger.info(f"[bot] Получено сообщение от {user.id}: {message[:50]}...")
-        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+        """Обрабатывает входящие сообщения"""
+        user_id = update.effective_user.id
+        message_text = update.message.text.strip()
+        
+        logger.info(f"[bot] Получено сообщение от {user_id}: {message_text}...")
+        
         try:
-            reg_number = extract_tender_number(message)
-            if not reg_number:
-                await update.message.reply_text(
-                    "❗ Пожалуйста, укажите корректный регистрационный номер закупки (19-20 цифр) или ссылку на тендер.\n\n"
-                    "Примеры:\n"
-                    "• 0123456789012345678\n"
-                    "• https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=0123456789012345678"
-                )
-                return
-            self.user_sessions[user.id] = {
-                'reg_number': reg_number,
-                'timestamp': datetime.now(),
-                'status': 'processing'
+            # Показываем что бот печатает (необязательно)
+            try:
+                await context.bot.send_chat_action(chat_id=update.effective_chat.id, action="typing")
+            except Exception as e:
+                logger.warning(f"[bot] Не удалось отправить chat_action: {e}")
+                # Продолжаем работу без chat_action
+        except Exception as e:
+            logger.error(f"[bot] Ошибка при обработке chat_action: {e}")
+        
+        # Инициализируем сессию пользователя если её нет
+        if user_id not in self.user_sessions:
+            self.user_sessions[user_id] = {
+                'status': 'waiting_for_tender',
+                'tender_data': None,
+                'files': None,
+                'search_queries': None
             }
-            await update.message.reply_text(f"🔍 Ищу тендер {reg_number}...")
-            tender_data = await damia_client.get_tender_info(reg_number)
+        
+        # Обрабатываем команды
+        if message_text.startswith('/'):
+            if message_text == '/start':
+                await self.start_command(update, context)
+            elif message_text == '/help':
+                await self.help_command(update, context)
+            elif message_text == '/status':
+                await self.status_command(update, context)
+            elif message_text == '/cleanup':
+                await self.cleanup_command(update, context)
+            else:
+                await update.message.reply_text("❌ Неизвестная команда. Используйте /help для списка команд.")
+            return
+        
+        # Проверяем статус пользователя
+        session = self.user_sessions[user_id]
+        
+        if session['status'] == 'waiting_for_tender':
+            # Ожидаем номер тендера
+            await update.message.reply_text("🔍 Ищу тендер...")
+            
+            try:
+                # Извлекаем номер тендера
+                tender_number = extract_tender_number(message_text)
+                if not tender_number:
+                    await update.message.reply_text("❌ Не удалось извлечь номер тендера. Пожалуйста, отправьте корректный номер.")
+                    return
+                
+                # Получаем данные тендера
+                tender_info = await damia_client.get_tender_info(tender_number)
+                if not tender_info:
+                    await update.message.reply_text("❌ Тендер не найден или произошла ошибка при получении данных.")
+                    return
+                
+                # Обновляем статус
+                session['status'] = 'tender_found'
+                session['tender_data'] = tender_info
+                
+                # Отправляем информацию о тендере
+                await self._send_tender_info(update, tender_info, tender_number)
+                
+            except Exception as e:
+                logger.error(f"[bot] Ошибка при обработке номера тендера: {e}")
+                await update.message.reply_text(f"❌ Произошла ошибка при обработке номера тендера: {str(e)}")
+                
+        elif session['status'] == 'tender_found':
+            await update.message.reply_text("📋 Тендер уже найден. Используйте кнопки для навигации или отправьте новый номер тендера.")
+            
+        elif session['status'] == 'ready_for_analysis':
+            await update.message.reply_text("🤖 Анализ уже готов. Используйте кнопки для навигации или отправьте новый номер тендера.")
+            
+        elif session['status'] == 'completed':
+            await update.message.reply_text("✅ Анализ завершён. Отправьте новый номер тендера для анализа.")
+            
+        else:
+            await update.message.reply_text("❓ Неизвестный статус. Отправьте номер тендера для начала работы.")
+    
+    async def _send_tender_info(self, update: Update, tender_info: dict, reg_number: str) -> None:
+        """Отправляет основную информацию о тендере"""
+        try:
             # --- ВСТАВКА: распаковка по номеру тендера ---
-            if tender_data and len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
-                tender_data = list(tender_data.values())[0]
+            if tender_info and len(tender_info) == 1 and isinstance(list(tender_info.values())[0], dict):
+                tender_info = list(tender_info.values())[0]
             # --- КОНЕЦ ВСТАВКИ ---
-            logger.info(f"Ответ DaMIA: {tender_data}")
-            if not tender_data:
+            
+            logger.info(f"[bot] Ответ DaMIA: {tender_info}")
+            
+            if not tender_info:
                 await update.message.reply_text(
                     f"❌ Не удалось найти тендер с номером {reg_number}.\n"
                     "Проверьте правильность номера или попробуйте позже."
                 )
                 return
-            formatted_info = damia_client.format_tender_info(tender_data)
-            self.user_sessions[user.id]['tender_data'] = tender_data
-            self.user_sessions[user.id]['formatted_info'] = formatted_info
-            await self._send_tender_info(update, formatted_info, reg_number)
-            self.user_sessions[user.id]['status'] = 'ready_for_analysis'
-        except Exception as e:
-            logger.error(f"[bot] Ошибка обработки сообщения: {e}")
+                
+            formatted_info = damia_client.format_tender_info(tender_info)
+            user_id = update.effective_user.id
+            
+            # Обновляем сессию пользователя
+            if user_id in self.user_sessions:
+                self.user_sessions[user_id]['tender_data'] = tender_info
+                self.user_sessions[user_id]['formatted_info'] = formatted_info
+                self.user_sessions[user_id]['status'] = 'ready_for_analysis'
+            
+            # Создаем клавиатуру с кнопками
+            keyboard = [
+                [InlineKeyboardButton("📋 Подробная информация", callback_data="detailed_info")],
+                [InlineKeyboardButton("📦 Товарные позиции", callback_data="products")],
+                [InlineKeyboardButton("📄 Документы", callback_data="documents")],
+                [InlineKeyboardButton("🤖 Детальный анализ", callback_data="analyze")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            # Отправляем основную информацию
             await update.message.reply_text(
-                "❌ Произошла ошибка при обработке запроса.\n"
-                "Попробуйте позже или обратитесь к администратору."
+                f"📋 **Информация о тендере**\n\n{formatted_info}",
+                parse_mode='Markdown',
+                reply_markup=reply_markup
             )
-    
-    async def _send_tender_info(self, update: Update, tender_info: dict, reg_number: str) -> None:
-        """Отправляет основную информацию о закупке с кнопками для дополнительных данных"""
-        info_text = f"""
-📋 **Информация о закупке**
-
-📊 **Статус:** {tender_info['status']}
-📋 **Федеральный закон:** {tender_info['federal_law']}-ФЗ
-🏢 **Заказчик:** {tender_info['customer']}
-📝 **ИНН:** {tender_info['customer_inn']}
-📍 **Адрес:** {tender_info['customer_address']}
-📄 **Предмет поставки:** {tender_info['subject']}
-💰 **Цена:** {format_price(tender_info['price'])}
-📅 **Дата публикации:** {format_date(tender_info['publication_date'])}
-⏰ **Срок подачи до:** {format_date(tender_info['submission_deadline'])}
-
-📍 **Место поставки:** {tender_info['delivery_place']}"""
-        keyboard = [
-            [InlineKeyboardButton("📦 Товарные позиции", callback_data=f"products_{reg_number}")],
-            [InlineKeyboardButton("📄 Документы", callback_data=f"documents_{reg_number}")],
-            [InlineKeyboardButton("🏢 Подробная информация", callback_data=f"details_{reg_number}")],
-            [InlineKeyboardButton("📊 Подробный анализ", callback_data=f"analyze_{reg_number}")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(info_text, parse_mode='Markdown', reply_markup=reply_markup)
+            
+        except Exception as e:
+            logger.error(f"[bot] Ошибка при отправке информации о тендере: {e}")
+            try:
+                await update.message.reply_text(
+                    f"❌ Произошла ошибка при отображении информации о тендере: {str(e)}\n"
+                    "Попробуйте позже или обратитесь к администратору."
+                )
+            except Exception as send_error:
+                logger.error(f"[bot] Не удалось отправить сообщение об ошибке: {send_error}")
     
     async def _analyze_documents(self, tender_data, files, update=None, chat_id=None, bot=None):
         # Новый экспертный промпт для анализа и генерации поисковых запросов
@@ -410,113 +474,120 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик callback запросов"""
         query = update.callback_query
-        await query.answer()
-        user_id = query.from_user.id  # Теперь user_id всегда определён
+        user_id = query.from_user.id
         
-        if query.data == "help":
-            await self.help_command(update, context)
-        elif query.data == "status":
-            await self.status_command(update, context)
-        elif query.data == "cleanup":
-            await self.cleanup_command(update, context)
-        elif query.data.startswith("products_") and not query.data.startswith("products_page_"):
-            reg_number = query.data.split("_")[1]
-            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
-                await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
-                return
-            tender_data = self.user_sessions[user_id]['tender_data']
-            # Первая страница: отправляем новое сообщение
-            sent = await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text="Загрузка товарных позиций..."
-            )
-            await self._send_products_list_to_chat(context.bot, query.message.chat_id, tender_data, page=0, message_id=sent.message_id)
-        elif query.data.startswith("products_page_"):
-            try:
-                page = int(query.data.split("_")[2])
-            except Exception:
-                page = 0
-            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
-                await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
-                return
-            tender_data = self.user_sessions[user_id]['tender_data']
-            # Навигация: обновляем текущее сообщение
-            logger.info(f"[bot] Навигация по товарам: page={page}, message_id={query.message.message_id}")
-            await self._send_products_list_to_chat(context.bot, query.message.chat_id, tender_data, page=page, message_id=query.message.message_id)
-        elif query.data == "current_page":
-            await query.answer("Текущая страница")
-            
-        elif query.data.startswith("documents_"):
-            reg_number = query.data.split("_")[1]
-            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
-                await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
-                return
-            # Получаем данные из сессии
-            tender_data = self.user_sessions[user_id]['tender_data']
-            
-            # Отправляем список документов с кнопками скачивания
-            await self._send_documents_list_with_download(context.bot, query.message.chat_id, tender_data, reg_number, page=0)
-            
-        elif query.data.startswith("details_"):
-            reg_number = query.data.split("_")[1]
-            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
-                await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
-                return
-            # Получаем данные из сессии
-            formatted_info = self.user_sessions[user_id]['formatted_info']
-            # Отправляем подробную информацию
-            await self._send_detailed_info_to_chat(context.bot, query.message.chat_id, formatted_info)
+        try:
+            await query.answer()  # Убираем "часики" у кнопки
+        except Exception as e:
+            logger.warning(f"[bot] Не удалось ответить на callback: {e}")
         
-        elif query.data.startswith("download_"):
-            reg_number = query.data.split("_")[1]
-            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
-                await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
-                return
-            # Получаем данные из сессии
-            tender_data = self.user_sessions[user_id]['tender_data']
-            try:
-                # Скачиваем документы
-                await context.bot.send_message(chat_id=query.message.chat_id, text="📥 Скачиваю документы...")
-                download_result = await downloader.download_documents(tender_data, reg_number)
-                if download_result['success'] > 0 and download_result['files']:
-                    logger.info(f"[bot] Содержимое download_result['files']: {download_result['files']}")
-                    # Создаем временный архив
-                    with tempfile.TemporaryDirectory() as tmpdir:
-                        zip_path = os.path.join(tmpdir, f"tender_{reg_number}.zip")
-                        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                            for file_info in download_result['files']:
-                                file_path = file_info['path']
-                                arcname = os.path.basename(file_path)
-                                zipf.write(file_path, arcname=arcname)
-                        # Отправляем архив пользователю
-                        with open(zip_path, 'rb') as zipfile_obj:
-                            await context.bot.send_document(
-                                chat_id=query.message.chat_id,
-                                document=zipfile_obj,
-                                filename=f"tender_{reg_number}.zip",
-                                caption=f"Все документы по тендеру {reg_number}"
-                            )
-                    await context.bot.send_message(chat_id=query.message.chat_id, text="✅ Все документы отправлены архивом.")
-                else:
-                    await context.bot.send_message(chat_id=query.message.chat_id, text="⚠️ Не удалось скачать документы")
-            except Exception as e:
-                logger.error(f"[bot] Ошибка скачивания документов тендера {reg_number}: {e}")
-                await context.bot.send_message(
+        try:
+            logger.info(f"[bot] Обрабатываем callback: {query.data} от пользователя {user_id}")
+            
+            if query.data == "help":
+                await self.help_command(update, context)
+            elif query.data == "status":
+                await self.status_command(update, context)
+            elif query.data == "cleanup":
+                await self.cleanup_command(update, context)
+            elif query.data.startswith("products_") and not query.data.startswith("products_page_"):
+                reg_number = query.data.split("_")[1]
+                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
+                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                    return
+                tender_data = self.user_sessions[user_id]['tender_data']
+                # Первая страница: отправляем новое сообщение
+                sent = await context.bot.send_message(
                     chat_id=query.message.chat_id,
-                    text="❌ Произошла ошибка при скачивании документов. Попробуйте позже."
+                    text="Загрузка товарных позиций..."
                 )
-        
-        elif query.data.startswith("analyze_"):
-            reg_number = query.data.split("_")[1]
-            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
-                await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
-                return
-            # Получаем данные из сессии
-            tender_data = self.user_sessions[user_id]['tender_data']
-            formatted_info = self.user_sessions[user_id]['formatted_info']
-            # --- Удаляем кнопку 'Подробный анализ' после нажатия ---
-            # Восстанавливаем текст и кнопки, но без analyze_
-            info_text = f"""
+                await self._send_products_list_to_chat(context.bot, query.message.chat_id, tender_data, page=0, message_id=sent.message_id)
+            elif query.data.startswith("products_page_"):
+                try:
+                    page = int(query.data.split("_")[2])
+                except Exception:
+                    page = 0
+                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
+                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                    return
+                tender_data = self.user_sessions[user_id]['tender_data']
+                # Навигация: обновляем текущее сообщение
+                logger.info(f"[bot] Навигация по товарам: page={page}, message_id={query.message.message_id}")
+                await self._send_products_list_to_chat(context.bot, query.message.chat_id, tender_data, page=page, message_id=query.message.message_id)
+            elif query.data == "current_page":
+                await query.answer("Текущая страница")
+                
+            elif query.data.startswith("documents_"):
+                reg_number = query.data.split("_")[1]
+                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
+                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                    return
+                # Получаем данные из сессии
+                tender_data = self.user_sessions[user_id]['tender_data']
+                
+                # Отправляем список документов с кнопками скачивания
+                await self._send_documents_list_with_download(context.bot, query.message.chat_id, tender_data, reg_number, page=0)
+                
+            elif query.data.startswith("details_"):
+                reg_number = query.data.split("_")[1]
+                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
+                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                    return
+                # Получаем данные из сессии
+                formatted_info = self.user_sessions[user_id]['formatted_info']
+                # Отправляем подробную информацию
+                await self._send_detailed_info_to_chat(context.bot, query.message.chat_id, formatted_info)
+            
+            elif query.data.startswith("download_"):
+                reg_number = query.data.split("_")[1]
+                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
+                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                    return
+                # Получаем данные из сессии
+                tender_data = self.user_sessions[user_id]['tender_data']
+                try:
+                    # Скачиваем документы
+                    await context.bot.send_message(chat_id=query.message.chat_id, text="📥 Скачиваю документы...")
+                    download_result = await downloader.download_documents(tender_data, reg_number)
+                    if download_result['success'] > 0 and download_result['files']:
+                        logger.info(f"[bot] Содержимое download_result['files']: {download_result['files']}")
+                        # Создаем временный архив
+                        with tempfile.TemporaryDirectory() as tmpdir:
+                            zip_path = os.path.join(tmpdir, f"tender_{reg_number}.zip")
+                            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                                for file_info in download_result['files']:
+                                    file_path = file_info['path']
+                                    arcname = os.path.basename(file_path)
+                                    zipf.write(file_path, arcname=arcname)
+                            # Отправляем архив пользователю
+                            with open(zip_path, 'rb') as zipfile_obj:
+                                await context.bot.send_document(
+                                    chat_id=query.message.chat_id,
+                                    document=zipfile_obj,
+                                    filename=f"tender_{reg_number}.zip",
+                                    caption=f"Все документы по тендеру {reg_number}"
+                                )
+                        await context.bot.send_message(chat_id=query.message.chat_id, text="✅ Все документы отправлены архивом.")
+                    else:
+                        await context.bot.send_message(chat_id=query.message.chat_id, text="⚠️ Не удалось скачать документы")
+                except Exception as e:
+                    logger.error(f"[bot] Ошибка скачивания документов тендера {reg_number}: {e}")
+                    await context.bot.send_message(
+                        chat_id=query.message.chat_id,
+                        text="❌ Произошла ошибка при скачивании документов. Попробуйте позже."
+                    )
+            
+            elif query.data.startswith("analyze_"):
+                reg_number = query.data.split("_")[1]
+                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
+                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                    return
+                # Получаем данные из сессии
+                tender_data = self.user_sessions[user_id]['tender_data']
+                formatted_info = self.user_sessions[user_id]['formatted_info']
+                # --- Удаляем кнопку 'Подробный анализ' после нажатия ---
+                # Восстанавливаем текст и кнопки, но без analyze_
+                info_text = f"""
 📋 **Информация о закупке**
 
 📊 **Статус:** {formatted_info['status']}
@@ -530,92 +601,94 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
 ⏰ **Срок подачи до:** {format_date(formatted_info['submission_deadline'])}
 
 📍 **Место поставки:** {formatted_info['delivery_place']}"""
-            keyboard = [
-                [InlineKeyboardButton("📦 Товарные позиции", callback_data=f"products_{reg_number}")],
-                [InlineKeyboardButton("📄 Документы", callback_data=f"documents_{reg_number}")],
-                [InlineKeyboardButton("🏢 Подробная информация", callback_data=f"details_{reg_number}")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            try:
-                await query.edit_message_text(info_text, parse_mode='Markdown', reply_markup=reply_markup)
-            except Exception:
-                pass
-            try:
-                await context.bot.send_message(chat_id=query.message.chat_id, text="📥 Скачиваю документы...")
-                download_result = await downloader.download_documents(tender_data, reg_number)
-                if download_result['success'] > 0:
+                keyboard = [
+                    [InlineKeyboardButton("📦 Товарные позиции", callback_data=f"products_{reg_number}")],
+                    [InlineKeyboardButton("📄 Документы", callback_data=f"documents_{reg_number}")],
+                    [InlineKeyboardButton("🏢 Подробная информация", callback_data=f"details_{reg_number}")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                try:
+                    await query.edit_message_text(info_text, parse_mode='Markdown', reply_markup=reply_markup)
+                except Exception:
+                    pass
+                try:
+                    await context.bot.send_message(chat_id=query.message.chat_id, text="📥 Скачиваю документы...")
+                    download_result = await downloader.download_documents(tender_data, reg_number)
+                    if download_result['success'] > 0:
+                        await context.bot.send_message(
+                            chat_id=query.message.chat_id,
+                            text=f"✅ Скачано документов: {download_result['success']}\n❌ Не удалось скачать: {download_result['failed']}"
+                        )
+                        # Анализируем документы
+                        if download_result['files']:
+                            await context.bot.send_message(chat_id=query.message.chat_id, text="🤖 Анализирую документы с помощью ИИ...")
+                            analysis_result = await self._analyze_documents(formatted_info, download_result['files'])
+                            if not analysis_result:
+                                # Ошибка уже обработана и сообщение отправлено
+                                return
+                            # Отправляем анализ
+                            await self._send_analysis_to_chat(context.bot, query.message.chat_id, analysis_result)
+                        else:
+                            await context.bot.send_message(chat_id=query.message.chat_id, text="⚠️ Документы не найдены для анализа")
+                    else:
+                        await context.bot.send_message(chat_id=query.message.chat_id, text="⚠️ Не удалось скачать документы для анализа")
+                    # Обновляем статус сессии
+                    self.user_sessions[user_id]['status'] = 'ready_for_analysis'
+                except Exception as e:
+                    logger.error(f"[bot] Ошибка анализа тендера {reg_number}: {e}")
                     await context.bot.send_message(
                         chat_id=query.message.chat_id,
-                        text=f"✅ Скачано документов: {download_result['success']}\n❌ Не удалось скачать: {download_result['failed']}"
+                        text="❌ Произошла ошибка при анализе тендера. Попробуйте позже."
                     )
-                    # Анализируем документы
-                    if download_result['files']:
-                        await context.bot.send_message(chat_id=query.message.chat_id, text="🤖 Анализирую документы с помощью ИИ...")
-                        analysis_result = await self._analyze_documents(formatted_info, download_result['files'])
-                        if not analysis_result:
-                            # Ошибка уже обработана и сообщение отправлено
-                            return
-                        # Отправляем анализ
-                        await self._send_analysis_to_chat(context.bot, query.message.chat_id, analysis_result)
-                    else:
-                        await context.bot.send_message(chat_id=query.message.chat_id, text="⚠️ Документы не найдены для анализа")
-                else:
-                    await context.bot.send_message(chat_id=query.message.chat_id, text="⚠️ Не удалось скачать документы для анализа")
-                # Обновляем статус сессии
-                self.user_sessions[user_id]['status'] = 'ready_for_analysis'
-            except Exception as e:
-                logger.error(f"[bot] Ошибка анализа тендера {reg_number}: {e}")
+            
+            elif query.data.startswith("docs_page_"):
+                parts = query.data.split("_")
+                reg_number = parts[2]
+                page = int(parts[3])
+                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
+                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                    return
+                
+                # Получаем данные из сессии
+                tender_data = self.user_sessions[user_id]['tender_data']
+                
+                # Обновляем сообщение с новой страницей документов
+                await self._update_documents_message(context.bot, query.message.chat_id, query.message.message_id, tender_data, reg_number, page)
+            elif query.data == "find_suppliers":
+                # После анализа: выводим кнопки по всем товарным позициям (только по GPT)
+                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
+                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                    return
+                search_queries = self.user_sessions[user_id].get('search_queries', {})
+                if not search_queries:
+                    await query.edit_message_text("В этом тендере отсутствуют товарные позиции (ИИ не выделил их из анализа). Возможно, это закупка услуг или данные не заполнены.")
+                    return
+                keyboard = []
+                for idx, (position, query_text) in enumerate(search_queries.items()):
+                    keyboard.append([InlineKeyboardButton(position, callback_data=f"find_supplier_{idx}")])
                 await context.bot.send_message(
                     chat_id=query.message.chat_id,
-                    text="❌ Произошла ошибка при анализе тендера. Попробуйте позже."
+                    text="Выберите товарную позицию для поиска поставщика:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
                 )
-        
-        elif query.data.startswith("docs_page_"):
-            parts = query.data.split("_")
-            reg_number = parts[2]
-            page = int(parts[3])
-            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
-                await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
-                return
-            
-            # Получаем данные из сессии
-            tender_data = self.user_sessions[user_id]['tender_data']
-            
-            # Обновляем сообщение с новой страницей документов
-            await self._update_documents_message(context.bot, query.message.chat_id, query.message.message_id, tender_data, reg_number, page)
-        elif query.data == "find_suppliers":
-            # После анализа: выводим кнопки по всем товарным позициям (только по GPT)
-            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
-                await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
-                return
-            search_queries = self.user_sessions[user_id].get('search_queries', {})
-            if not search_queries:
-                await query.edit_message_text("В этом тендере отсутствуют товарные позиции (ИИ не выделил их из анализа). Возможно, это закупка услуг или данные не заполнены.")
-                return
-            keyboard = []
-            for idx, (position, query_text) in enumerate(search_queries.items()):
-                keyboard.append([InlineKeyboardButton(position, callback_data=f"find_supplier_{idx}")])
-            await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text="Выберите товарную позицию для поиска поставщика:",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
-        elif query.data.startswith("find_supplier_"):
-            if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
-                await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
-                return
-            idx = int(query.data.split('_')[-1])
-            search_queries = self.user_sessions[user_id].get('search_queries', {})
-            if idx >= len(search_queries):
-                await query.edit_message_text("❌ Позиция не найдена.")
-                return
-            position = list(search_queries.keys())[idx]
-            search_query = list(search_queries.values())[idx]
-            logger.info(f"[bot] Поисковый запрос для SerpAPI по позиции '{position}': {search_query}")
-            await query.edit_message_text(f"🔎 Ищу поставщиков по позиции: {position} (по запросу: {search_query})...")
-            search_results = await self._search_suppliers_serpapi(search_query)
-            gpt_result = await self._extract_suppliers_gpt_ranked(search_query, search_results)
-            await context.bot.send_message(chat_id=query.message.chat_id, text=gpt_result, parse_mode='HTML')
+            elif query.data.startswith("find_supplier_"):
+                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
+                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                    return
+                idx = int(query.data.split('_')[-1])
+                search_queries = self.user_sessions[user_id].get('search_queries', {})
+                if idx >= len(search_queries):
+                    await query.edit_message_text("❌ Позиция не найдена.")
+                    return
+                position = list(search_queries.keys())[idx]
+                search_query = list(search_queries.values())[idx]
+                logger.info(f"[bot] Поисковый запрос для SerpAPI по позиции '{position}': {search_query}")
+                await query.edit_message_text(f"🔎 Ищу поставщиков по позиции: {position} (по запросу: {search_query})...")
+                search_results = await self._search_suppliers_serpapi(search_query)
+                gpt_result = await self._extract_suppliers_gpt_ranked(search_query, search_results)
+                await context.bot.send_message(chat_id=query.message.chat_id, text=gpt_result, parse_mode='HTML')
+        except Exception as e:
+            logger.error(f"[bot] Ошибка при обработке callback: {e}")
     
     async def _search_suppliers_serpapi(self, query):
         from concurrent.futures import ThreadPoolExecutor

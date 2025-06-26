@@ -358,17 +358,20 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             return
         overall = analysis_result.get('overall_analysis', {})
         summary = overall.get('summary', 'Анализ недоступен')
+        # --- Вырезаем раздел 'Поисковые запросы' из summary для пользователя ---
+        import re
+        summary_clean = re.split(r'Поисковые запросы\s*:?', summary, maxsplit=1, flags=re.IGNORECASE)[0].strip()
         # Разбиваем длинный анализ на части
-        if len(summary) > 4000:
-            parts = [summary[i:i+4000] for i in range(0, len(summary), 4000)]
+        if len(summary_clean) > 4000:
+            parts = [summary_clean[i:i+4000] for i in range(0, len(summary_clean), 4000)]
             for i, part in enumerate(parts):
                 if i == 0:
                     await bot.send_message(chat_id=chat_id, text=f"🤖 **Анализ тендера** (часть {i+1}/{len(parts)}):\n\n{part}", parse_mode='Markdown')
                 else:
                     await bot.send_message(chat_id=chat_id, text=f"🤖 **Продолжение анализа** (часть {i+1}/{len(parts)}):\n\n{part}", parse_mode='Markdown')
         else:
-            await bot.send_message(chat_id=chat_id, text=f"🤖 **Анализ тендера:**\n\n{summary}", parse_mode='Markdown')
-        # --- Новый блок: сохраняем поисковые запросы GPT и строим кнопки только по ним ---
+            await bot.send_message(chat_id=chat_id, text=f"🤖 **Анализ тендера:**\n\n{summary_clean}", parse_mode='Markdown')
+        # --- Сохраняем поисковые запросы GPT для дальнейшего использования ---
         search_queries = analysis_result.get('search_queries', {})
         for user_id, session in self.user_sessions.items():
             if session.get('status') in ['ready_for_analysis', 'completed']:
@@ -376,11 +379,9 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         if not search_queries:
             await bot.send_message(chat_id=chat_id, text="❌ Не удалось выделить товарные позиции из анализа. Попробуйте другой тендер или обратитесь к администратору.")
             return
-        keyboard = []
-        for idx, (position, query) in enumerate(search_queries.items()):
-            # position — название товара, query — поисковый запрос
-            keyboard.append([InlineKeyboardButton(position, callback_data=f"find_supplier_{idx}")])
-        await bot.send_message(chat_id=chat_id, text="Выберите товарную позицию для поиска поставщика:", reply_markup=InlineKeyboardMarkup(keyboard))
+        # --- Показываем только одну кнопку '🔎 Найти поставщиков' ---
+        keyboard = [[InlineKeyboardButton("🔎 Найти поставщиков", callback_data="find_suppliers")]]
+        await bot.send_message(chat_id=chat_id, text="Хотите найти поставщиков по результатам анализа?", reply_markup=InlineKeyboardMarkup(keyboard))
     
     async def _send_analysis(self, update: Update, analysis_result: dict) -> None:
         """Отправляет результаты анализа"""

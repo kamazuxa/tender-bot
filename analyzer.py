@@ -35,28 +35,33 @@ class DocumentAnalyzer:
         
         logger.info(f"[analyzer] 🤖 Начинаем анализ {len(downloaded_files)} документов")
         
-        # Подготавливаем контекст о тендере
-        tender_context = self._prepare_tender_context(tender_info)
-        
-        # Анализируем каждый документ
-        document_analyses = []
-        for file_info in downloaded_files:
-            try:
-                analysis = await self._analyze_single_document(file_info, tender_context)
-                if analysis:
-                    document_analyses.append(analysis)
-            except Exception as e:
-                logger.error(f"[analyzer] ❌ Ошибка анализа документа {file_info.get('name', 'unknown')}: {e}")
-        
-        # Создаем общий анализ
-        overall_analysis = await self._create_overall_analysis(tender_info, document_analyses)
-        
-        return {
-            "tender_summary": tender_context,
-            "document_analyses": document_analyses,
-            "overall_analysis": overall_analysis,
-            "analysis_timestamp": asyncio.get_event_loop().time()
-        }
+        try:
+            # Подготавливаем контекст о тендере
+            tender_context = self._prepare_tender_context(tender_info)
+            
+            # Анализируем каждый документ
+            document_analyses = []
+            for file_info in downloaded_files:
+                try:
+                    analysis = await self._analyze_single_document(file_info, tender_context)
+                    if analysis:
+                        document_analyses.append(analysis)
+                except Exception as e:
+                    logger.error(f"[analyzer] ❌ Ошибка анализа документа {file_info.get('name', 'unknown')}: {e}")
+            
+            # Создаем общий анализ
+            overall_analysis = await self._create_overall_analysis(tender_info, document_analyses)
+            logger.info(f"[analyzer] ✅ Общий анализ: {overall_analysis}")
+            
+            return {
+                "tender_summary": tender_context,
+                "document_analyses": document_analyses,
+                "overall_analysis": overall_analysis,
+                "analysis_timestamp": asyncio.get_event_loop().time()
+            }
+        except Exception as e:
+            logger.error(f"[analyzer] ❌ Ошибка в analyze_tender_documents: {e}")
+            return None
     
     def _prepare_tender_context(self, tender_info: Dict) -> Dict:
         """Подготавливает контекстную информацию о тендере"""
@@ -103,13 +108,16 @@ class DocumentAnalyzer:
             # Читаем содержимое файла
             content = await self._read_file_content(file_path)
             if not content:
+                logger.warning(f"[analyzer] ⚠️ Пустое содержимое файла: {file_path}")
                 return None
             
             # Создаем промпт для анализа
             prompt = self._create_analysis_prompt(content, tender_context, file_info['original_name'])
+            logger.info(f"[analyzer] Промпт для GPT (первые 500 символов): {prompt[:500]}")
             
             # Отправляем запрос к OpenAI
             analysis = await self._call_openai_api(prompt)
+            logger.info(f"[analyzer] Ответ GPT (первые 500 символов): {str(analysis)[:500]}")
             
             return {
                 "file_name": file_info['original_name'],
@@ -215,27 +223,23 @@ class DocumentAnalyzer:
 """
     
     async def _call_openai_api(self, prompt: str) -> str:
-        """Вызывает OpenAI API для анализа"""
         try:
-            # Настройка VPN для запросов к OpenAI (если включено)
-            if USE_VPN_FOR_OPENAI:
-                await self._setup_vpn_connection()
-            
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": "Ты эксперт по анализу тендерной документации. Твоя задача - предоставить четкий и структурированный анализ документов тендеров."},
-                    {"role": "user", "content": prompt}
-                ],
-                max_tokens=2000,
-                temperature=0.3
+            logger.info(f"[analyzer] Отправляю в OpenAI prompt длиной {len(prompt)} символов")
+            response = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=1200,
+                    temperature=0.2,
+                )
             )
-            
-            return response.choices[0].message.content
-            
+            answer = response.choices[0].message.content
+            logger.info(f"[analyzer] Ответ OpenAI (первые 500 символов): {answer[:500]}")
+            return answer
         except Exception as e:
-            logger.error(f"[analyzer] ❌ Ошибка OpenAI API: {e}")
-            return f"Ошибка анализа: {str(e)}"
+            logger.error(f"[analyzer] ❌ Ошибка при обращении к OpenAI: {e}")
+            return None
     
     async def _setup_vpn_connection(self):
         """Настраивает VPN соединение для запросов к OpenAI"""

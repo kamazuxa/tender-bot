@@ -78,11 +78,20 @@ class DamiaClient:
         """
         # Сначала пробуем zakupka, потом contract
         data = await self.get_zakupka(reg_number)
-        if data:
+        if data and not self._is_empty_response(data):
             return data
+            
         data = await self.get_contract(reg_number)
-        if data:
+        if data and not self._is_empty_response(data):
             return data
+            
+        # Если не нашли, пробуем поиск по номеру
+        logger.warning(f"[damia] Тендер {reg_number} не найден в основных эндпоинтах, пробуем поиск")
+        search_data = await self.zsearch(reg_number)
+        if search_data and not self._is_empty_response(search_data):
+            return search_data
+            
+        logger.error(f"[damia] Тендер {reg_number} не найден ни в одном эндпоинте")
         return None
     
     def _is_empty_response(self, data: Dict) -> bool:

@@ -8,6 +8,9 @@ from pathlib import Path
 from openai import OpenAI
 from config import OPENAI_API_KEY, OPENAI_MODEL, USE_VPN_FOR_OPENAI, VPN_INTERFACE
 import mimetypes
+import hashlib
+import time
+import json
 try:
     import pytesseract
     from PIL import Image
@@ -26,6 +29,35 @@ import hashlib
 
 logger = logging.getLogger(__name__)
 
+# Кэш для результатов анализа
+ANALYSIS_CACHE = {}
+CACHE_TTL = 3600  # 1 час
+
+# Fallback модели при ошибках
+FALLBACK_MODELS = ['gpt-3.5-turbo', 'gpt-4o-mini', 'gpt-4']
+
+def get_cache_key(tender_info: Dict, downloaded_files: List[Dict]) -> str:
+    """Генерирует ключ кэша для анализа"""
+    tender_str = json.dumps(tender_info, sort_keys=True)
+    files_str = json.dumps([f.get('path', '') for f in downloaded_files], sort_keys=True)
+    return hashlib.md5((tender_str + files_str).encode()).hexdigest()
+
+def get_cached_analysis(cache_key: str) -> Optional[Dict]:
+    """Получает результат анализа из кэша"""
+    if cache_key in ANALYSIS_CACHE:
+        timestamp, result = ANALYSIS_CACHE[cache_key]
+        if time.time() - timestamp < CACHE_TTL:
+            logger.info(f"[analyzer] Найден кэшированный результат для {cache_key}")
+            return result
+        else:
+            del ANALYSIS_CACHE[cache_key]
+    return None
+
+def cache_analysis_result(cache_key: str, result: Dict):
+    """Сохраняет результат анализа в кэш"""
+    ANALYSIS_CACHE[cache_key] = (time.time(), result)
+    logger.info(f"[analyzer] Результат сохранен в кэш: {cache_key}")
+
 class DocumentAnalyzer:
     def __init__(self, api_key: str, model: str = OPENAI_MODEL):
         self.api_key = api_key
@@ -35,9 +67,18 @@ class DocumentAnalyzer:
     async def analyze_tender_documents(self, tender_info: Dict, downloaded_files: List[Dict], progress_callback=None) -> Dict:
         print("[analyzer] analyze_tender_documents (эконом режим) вызван")
         logger.info("[analyzer] analyze_tender_documents (эконом режим) вызван")
+        
         if not downloaded_files:
             logger.info("[analyzer] 📄 Нет документов для анализа")
             return {"overall_analysis": {"summary": "Документы для анализа не найдены"}, "raw_data": tender_info, "search_queries": {}}
+        
+        # Проверяем кэш
+        cache_key = get_cache_key(tender_info, downloaded_files)
+        cached_result = get_cached_analysis(cache_key)
+        if cached_result:
+            logger.info("[analyzer] Возвращаем кэшированный результат")
+            return cached_result
+        
         # 1. Извлекаем тексты и собираем full_text
         full_chunks = []
         for file_info in downloaded_files:
@@ -54,6 +95,7 @@ class DocumentAnalyzer:
                 logger.info(f"[analyzer] {file_path} — первые 200 символов: {text.strip()[:200]}")
             except Exception as e:
                 logger.error(f"[analyzer] Ошибка при обработке {file_path}: {e}")
+        
         full_text = "\n\n".join(full_chunks)
         logger.info(f"[analyzer] Итоговый full_text длина: {len(full_text)}")
         logger.info(f"[analyzer] Итоговый full_text первые 500 символов: {full_text[:500]}")
@@ -62,13 +104,17 @@ class DocumentAnalyzer:
         # Если помещается — обычный анализ
         if len(full_text) <= MAX_LEN:
             logger.info("[analyzer] Текст помещается в лимит, отправляем одним запросом")
-            summary = await self._analyze_single(full_text, tender_info)
+            summary = await self._analyze_single_with_fallback(full_text, tender_info)
             search_queries = parse_search_queries_from_gpt(summary)
-            return {"overall_analysis": {"summary": summary}, "raw_data": tender_info, "search_queries": search_queries}
+            result = {"overall_analysis": {"summary": summary}, "raw_data": tender_info, "search_queries": search_queries}
+            cache_analysis_result(cache_key, result)
+            return result
+        
         # Иначе — разбиваем на чанки
         logger.warning("[analyzer] Текст превышает лимит, разбиваем на части")
         if progress_callback:
             await progress_callback("⚠️ слишком большой тендер — анализ идёт по частям")
+        
         # Разбиваем по ==== ДОКУМЕНТ
         docs = full_text.split('==== ДОКУМЕНТ')
         docs = [d for d in docs if d.strip()]
@@ -83,23 +129,49 @@ class DocumentAnalyzer:
                 current += doc
         if current:
             chunks.append(current)
+        
         logger.info(f"[analyzer] Получено чанков: {len(chunks)}")
         analyses = []
         for i, chunk in enumerate(chunks):
             if progress_callback:
                 await progress_callback(f"🤖 Анализируется часть {i+1} из {len(chunks)}...")
             logger.info(f"[analyzer] Отправляем чанк {i+1}/{len(chunks)} длина {len(chunk)}")
-            result = await self._analyze_single(chunk, tender_info, part_num=i+1, total_parts=len(chunks))
+            result = await self._analyze_single_with_fallback(chunk, tender_info, part_num=i+1, total_parts=len(chunks))
             analyses.append(result)
+        
         # Объединяющий запрос
         if progress_callback:
             await progress_callback("🤖 Формируется итоговый анализ по всем частям...")
         summary_prompt = "Вот анализы по частям:\n" + "\n\n".join(analyses) + "\n\nСделай общий вывод по тендеру, объединив все части, и выполни все пункты анализа как обычно."
-        summary = await self._analyze_single(summary_prompt, tender_info, is_summary=True)
+        summary = await self._analyze_single_with_fallback(summary_prompt, tender_info, is_summary=True)
         search_queries = parse_search_queries_from_gpt(summary)
-        return {"overall_analysis": {"summary": summary}, "raw_data": tender_info, "search_queries": search_queries}
+        result = {"overall_analysis": {"summary": summary}, "raw_data": tender_info, "search_queries": search_queries}
+        cache_analysis_result(cache_key, result)
+        return result
 
-    async def _analyze_single(self, text, tender_info, part_num=None, total_parts=None, is_summary=False):
+    async def _analyze_single_with_fallback(self, text, tender_info, part_num=None, total_parts=None, is_summary=False):
+        """Анализ с fallback на другие модели при ошибках"""
+        for model in [self.model] + FALLBACK_MODELS:
+            if model == self.model:
+                continue  # Пропускаем основную модель, так как она уже была попробована
+            try:
+                logger.info(f"[analyzer] Пробуем модель: {model}")
+                result = await self._analyze_single(text, tender_info, part_num, total_parts, is_summary, model)
+                if result and not result.startswith("❌ Ошибка"):
+                    logger.info(f"[analyzer] Успешно использована модель: {model}")
+                    return result
+            except Exception as e:
+                logger.warning(f"[analyzer] Ошибка с моделью {model}: {e}")
+                continue
+        
+        # Если все модели не сработали, возвращаем базовый анализ
+        logger.error("[analyzer] Все модели не сработали, возвращаем базовый анализ")
+        return "❌ Не удалось проанализировать документы. Попробуйте позже."
+
+    async def _analyze_single(self, text, tender_info, part_num=None, total_parts=None, is_summary=False, model=None):
+        if model is None:
+            model = self.model
+            
         prompt_instructions = (
             "Проанализируй их комплексно и выполни следующие задачи:\n\n"
             "1. Дай краткое описание закупки: какие товары/услуги требуются, объёмы, особенности (ГОСТ, фасовка, сорт, единицы измерения, сроки и т.п.).\n"
@@ -126,12 +198,12 @@ class DocumentAnalyzer:
             {"role": "user", "content": text},
             {"role": "user", "content": prompt_instructions}
         ]
-        logger.info(f"[analyzer] _analyze_single: messages[1] length: {len(text)} part {part_num}/{total_parts} summary={is_summary}")
+        logger.info(f"[analyzer] _analyze_single: messages[1] length: {len(text)} part {part_num}/{total_parts} summary={is_summary} model={model}")
         try:
             response = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: self.client.chat.completions.create(
-                    model=self.model,
+                    model=model,
                     messages=messages,
                     temperature=0.4,
                     max_tokens=2048
@@ -141,7 +213,7 @@ class DocumentAnalyzer:
             logger.info(f"[analyzer] _analyze_single: Ответ OpenAI (первые 500 символов): {answer[:500]}")
             return answer
         except Exception as e:
-            logger.error(f"[analyzer] Ошибка запроса к OpenAI: {e}")
+            logger.error(f"[analyzer] Ошибка запроса к OpenAI с моделью {model}: {e}")
             return f"❌ Ошибка запроса к OpenAI: {e}"
     
     async def extract_text_from_file(self, file_path: Path) -> Optional[str]:

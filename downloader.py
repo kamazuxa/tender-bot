@@ -19,9 +19,9 @@ class DocumentDownloader:
         self.download_dir = Path(download_dir)
         self.download_dir.mkdir(exist_ok=True)
     
-    async def download_documents(self, tender_data: Dict, reg_number: str) -> Dict:
+    async def download_documents(self, tender_data: Dict, reg_number: str, progress_callback=None) -> Dict:
         """
-        Асинхронно скачивает документы тендера
+        Асинхронно скачивает документы тендера с прогресс-баром
         """
         # Если tender_data — это словарь с одним ключом (номером тендера), работаем с его содержимым
         if len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
@@ -43,9 +43,13 @@ class DocumentDownloader:
         downloaded_files = []
         success_count = 0
         failed_count = 0
+        
         # Заменяем documents на all_files в цикле скачивания
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session:
-            for file_info in all_files:
+            for i, file_info in enumerate(all_files):
+                if progress_callback:
+                    await progress_callback(f"📥 Скачивание {i+1}/{len(all_files)}: {file_info.get('Название', 'unnamed')}")
+                
                 try:
                     result = await self._download_single_document(session, file_info, reg_number)
                     if result:
@@ -136,8 +140,8 @@ class DocumentDownloader:
                     logger.warning(f"[downloader] ⚠️ Файл слишком большой: {name} ({content_length} байт)")
                     return None
 
-                # Скачиваем файл
-                content = await response.read()
+                # Скачиваем файл с прогресс-баром для больших файлов
+                content = await self._download_with_progress(response, name)
                 if len(content) > MAX_FILE_SIZE:
                     logger.warning(f"[downloader] ⚠️ Файл превышает лимит после скачивания: {name}")
                     return None
@@ -159,6 +163,23 @@ class DocumentDownloader:
         except Exception as e:
             logger.error(f"[downloader] ❌ Ошибка при скачивании {name}: {e}")
         return None
+    
+    async def _download_with_progress(self, response, filename: str, chunk_size: int = 8192) -> bytes:
+        """Скачивает файл с отображением прогресса для больших файлов"""
+        content = b''
+        total_size = int(response.headers.get('content-length', 0))
+        downloaded = 0
+        
+        async for chunk in response.content.iter_chunked(chunk_size):
+            content += chunk
+            downloaded += len(chunk)
+            
+            # Показываем прогресс для файлов больше 1MB
+            if total_size > 1024 * 1024 and downloaded % (1024 * 1024) == 0:  # Каждый MB
+                progress = (downloaded / total_size) * 100
+                logger.info(f"[downloader] 📥 {filename}: {progress:.1f}% ({downloaded}/{total_size} байт)")
+        
+        return content
     
     def _is_supported_extension(self, filename: str) -> bool:
         """Проверяет, поддерживается ли расширение файла"""

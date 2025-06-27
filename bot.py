@@ -20,6 +20,9 @@ import json
 import openai
 from urllib.parse import urlparse
 import mimetypes
+import functools
+import time
+from typing import Optional, Dict, Any, Callable
 try:
     import httpx
 except ImportError:
@@ -39,6 +42,83 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# Кэш для результатов анализа
+ANALYSIS_CACHE = {}
+CACHE_TTL = 3600  # 1 час
+
+# Retry настройки
+MAX_RETRIES = 3
+RETRY_DELAY = 1  # секунды
+
+def retry_on_error(max_retries: int = MAX_RETRIES, delay: float = RETRY_DELAY):
+    """Декоратор для retry-логики"""
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries):
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    logger.warning(f"[retry] Попытка {attempt + 1}/{max_retries} не удалась: {e}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(delay * (2 ** attempt))  # Экспоненциальная задержка
+            logger.error(f"[retry] Все попытки исчерпаны: {last_exception}")
+            raise last_exception
+        return wrapper
+    return decorator
+
+def get_cache_key(tender_data: Dict, files: list) -> str:
+    """Генерирует ключ кэша для анализа"""
+    import hashlib
+    tender_str = json.dumps(tender_data, sort_keys=True)
+    files_str = json.dumps([f.get('path', '') for f in files], sort_keys=True)
+    return hashlib.md5((tender_str + files_str).encode()).hexdigest()
+
+def get_cached_analysis(cache_key: str) -> Optional[Dict]:
+    """Получает результат анализа из кэша"""
+    if cache_key in ANALYSIS_CACHE:
+        timestamp, result = ANALYSIS_CACHE[cache_key]
+        if time.time() - timestamp < CACHE_TTL:
+            logger.info(f"[cache] Найден кэшированный результат для {cache_key}")
+            return result
+        else:
+            del ANALYSIS_CACHE[cache_key]
+    return None
+
+def cache_analysis_result(cache_key: str, result: Dict):
+    """Сохраняет результат анализа в кэш"""
+    ANALYSIS_CACHE[cache_key] = (time.time(), result)
+    logger.info(f"[cache] Результат сохранен в кэш: {cache_key}")
+
+def safe_get_message(update: Update) -> Optional[Any]:
+    """Безопасно получает сообщение из update"""
+    if update.message:
+        return update.message
+    elif update.callback_query and update.callback_query.message:
+        return update.callback_query.message
+    return None
+
+def validate_user_session(user_id: int, user_sessions: Dict, required_status: str = None) -> tuple[bool, Optional[Dict]]:
+    """Проверяет валидность сессии пользователя"""
+    if user_id not in user_sessions:
+        return False, None
+    
+    session = user_sessions[user_id]
+    
+    if required_status and session.get('status') != required_status:
+        return False, session
+    
+    return True, session
+
+async def handle_session_error(query, error_msg: str = "❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново."):
+    """Обрабатывает ошибки сессии"""
+    try:
+        await query.edit_message_text(error_msg)
+    except Exception as e:
+        logger.warning(f"[bot] Не удалось отправить сообщение об ошибке: {e}")
 
 EXCLUDE_DOMAINS = [
     "avito.ru", "wildberries.ru", "ozon.ru", "market.yandex.ru", "lavka.yandex.ru",
@@ -422,46 +502,47 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 logger.error(f"[bot] Не удалось отправить сообщение об ошибке: {send_error}")
     
     async def _analyze_documents(self, tender_data, files, update=None, chat_id=None, bot=None):
+        # Проверяем кэш
+        cache_key = get_cache_key(tender_data, files)
+        cached_result = get_cached_analysis(cache_key)
+        if cached_result:
+            logger.info("[bot] Возвращаем кэшированный результат анализа")
+            return cached_result
+        
         # Новый экспертный промпт для анализа и генерации поисковых запросов
-        prompt = (
-            "Ты — эксперт по госзакупкам и анализу товарных позиций для поиска поставщиков.\n"
-            "Вот текст закупочной документации и технического задания (ТЗ). Проанализируй его комплексно и выполни следующие задачи:\n"
-            "\nДай краткое описание закупки: какие товары требуются, в каком объёме, какие есть особенности (ГОСТ, фасовка, сорт, единицы измерения, сроки и т.п.).\n"
-            "\nОпредели потенциальные риски и подводные камни для участника закупки:\n"
-            "– есть ли неясности в ТЗ?\n"
-            "– указана ли конкретная упаковка или требования, которые сложно соблюсти?\n"
-            "– есть ли ограничения по поставке, логистике, сертификации и т.д.?\n"
-            "\nДай рекомендации: стоит ли участвовать в закупке с учётом этих рисков? Почему да или почему нет?\n"
-            "\nСформируй поисковые запросы в Яндексе для каждой товарной позиции, чтобы найти поставщиков в России. Запросы должны быть максимально релевантными для нахождения коммерческих предложений, цен и контактов. Включай: – наименование товара (кратко), – сорт/марку/модель, – ГОСТ/ТУ, – фасовку/упаковку, – объём (если применимо), – ключевые слова: купить, оптом, цена, поставщик.\n"
-            "\nДай результат в виде:\n"
-            "Анализ: <summary>\n"
-            "Поисковые запросы:\n"
-            "1. <позиция>: <поисковый запрос>\n2. ...\n"
-        )
-        # --- ВСТАВКА: UX-индикатор для больших тендеров ---
-        from analyzer import shrink_text
-        full_chunks = []
-        for file_info in files:
-            file_path = file_info['path']
+        async def progress_callback(message: str):
+            """Callback для отображения прогресса"""
             try:
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    text = f.read()
-                text = shrink_text(text)
-                header = f"==== ДОКУМЕНТ: {file_info.get('original_name', str(file_path))} ====\n{text.strip()}\n"
-                full_chunks.append(header)
-            except Exception:
-                continue
-        full_text = '\n\n'.join(full_chunks)
-        if len(full_text) > 20000:
-            # Определяем куда отправлять сообщение
-            if update is not None:
-                await update.message.reply_text("⚠️ слишком большой тендер — идёт по частям")
-            elif bot is not None and chat_id is not None:
-                await bot.send_message(chat_id=chat_id, text="⚠️ слишком большой тендер — идёт по частям")
-        # --- КОНЕЦ ВСТАВКИ ---
-        # Далее стандартный вызов анализа
-        analysis_result = await analyzer.analyze_tender_documents(tender_data, files)
-        return analysis_result
+                if update and hasattr(update, 'edit_message_text'):
+                    await update.edit_message_text(message)
+                elif bot and chat_id:
+                    await bot.send_message(chat_id=chat_id, text=message)
+            except Exception as e:
+                logger.warning(f"[bot] Не удалось отправить прогресс: {e}")
+        
+        try:
+            analysis_result = await analyzer.analyze_tender_documents(
+                tender_data, files, progress_callback=progress_callback
+            )
+            
+            if analysis_result:
+                # Сохраняем в кэш
+                cache_analysis_result(cache_key, analysis_result)
+                
+                # Сохраняем поисковые запросы в сессии пользователя
+                if update and hasattr(update, 'from_user'):
+                    user_id = update.from_user.id
+                    if user_id in self.user_sessions:
+                        self.user_sessions[user_id]['search_queries'] = analysis_result.get('search_queries', {})
+                
+                return analysis_result
+            else:
+                logger.error("[bot] Анализатор вернул пустой результат")
+                return None
+                
+        except Exception as e:
+            logger.error(f"[bot] Ошибка при анализе документов: {e}")
+            return None
     
     async def _send_analysis_to_chat(self, bot, chat_id: int, analysis_result: dict) -> None:
         if not analysis_result:
@@ -544,10 +625,11 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 await self.cleanup_command(update, context)
             elif query.data == "products":
                 # Обработка кнопки "Товарные позиции"
-                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
-                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                if not valid:
+                    await handle_session_error(query)
                     return
-                tender_data = self.user_sessions[user_id]['tender_data']
+                tender_data = session['tender_data']
                 # Первая страница: отправляем новое сообщение
                 sent = await context.bot.send_message(
                     chat_id=query.message.chat_id,
@@ -556,11 +638,12 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 await self._send_products_list_to_chat(context.bot, query.message.chat_id, tender_data, page=0, message_id=sent.message_id)
             elif query.data == "documents":
                 # Обработка кнопки "Документы"
-                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
-                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                if not valid:
+                    await handle_session_error(query)
                     return
                 # Получаем данные из сессии
-                tender_data = self.user_sessions[user_id]['tender_data']
+                tender_data = session['tender_data']
                 reg_number = extract_tender_number(str(tender_data))
                 if not reg_number:
                     await query.edit_message_text("❌ Не удалось извлечь номер тендера.")
@@ -569,21 +652,23 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 await self._send_documents_list_with_download(context.bot, query.message.chat_id, tender_data, reg_number, page=0)
             elif query.data == "detailed_info":
                 # Обработка кнопки "Подробная информация"
-                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
-                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                if not valid:
+                    await handle_session_error(query)
                     return
                 # Получаем данные из сессии
-                tender_data = self.user_sessions[user_id]['tender_data']
+                tender_data = session['tender_data']
                 # Отправляем подробную информацию
                 await self._send_detailed_info_to_chat(context.bot, query.message.chat_id, tender_data)
             elif query.data == "analyze":
                 # Обработка кнопки "Детальный анализ"
-                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
-                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                if not valid:
+                    await handle_session_error(query)
                     return
                 
                 # Получаем данные из сессии
-                tender_data = self.user_sessions[user_id]['tender_data']
+                tender_data = session['tender_data']
                 
                 await query.edit_message_text("🤖 Начинаю анализ документов...")
                 
@@ -599,20 +684,20 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                         await query.edit_message_text("❌ Не удалось скачать документы для анализа.")
                         return
                         
-                    self.user_sessions[user_id]['files'] = files.get('files', [])
+                    session['files'] = files.get('files', [])
                     
                     # Анализируем документы
                     analysis_result = await self._analyze_documents(
                         tender_data, 
                         files.get('files', []), 
-                        update=update, 
+                        update=query, 
                         chat_id=query.message.chat_id, 
                         bot=context.bot
                     )
                     
                     if analysis_result:
                         await self._send_analysis_to_chat(context.bot, query.message.chat_id, analysis_result)
-                        self.user_sessions[user_id]['status'] = 'completed'
+                        session['status'] = 'completed'
                     else:
                         await query.edit_message_text("❌ Не удалось проанализировать документы.")
                         
@@ -624,10 +709,11 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     page = int(query.data.split("_")[2])
                 except Exception:
                     page = 0
-                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
-                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                if not valid:
+                    await handle_session_error(query)
                     return
-                tender_data = self.user_sessions[user_id]['tender_data']
+                tender_data = session['tender_data']
                 # Навигация: обновляем текущее сообщение
                 logger.info(f"[bot] Навигация по товарам: page={page}, message_id={query.message.message_id}")
                 await self._send_products_list_to_chat(context.bot, query.message.chat_id, tender_data, page=page, message_id=query.message.message_id)
@@ -635,10 +721,11 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 await query.answer("Текущая страница")
             elif query.data.startswith("documents_page_"):
                 page = int(query.data.split('_')[-1])
-                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
-                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                if not valid:
+                    await handle_session_error(query)
                     return
-                tender_data = self.user_sessions[user_id]['tender_data']
+                tender_data = session['tender_data']
                 reg_number = extract_tender_number(str(tender_data))
                 if not reg_number:
                     await query.edit_message_text("❌ Не удалось извлечь номер тендера.")
@@ -653,10 +740,11 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 )
             elif query.data.startswith("download_"):
                 file_id = query.data.split('_', 1)[1]
-                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] != 'ready_for_analysis':
-                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                if not valid:
+                    await handle_session_error(query)
                     return
-                tender_data = self.user_sessions[user_id]['tender_data']
+                tender_data = session['tender_data']
                 reg_number = extract_tender_number(str(tender_data))
                 if not reg_number:
                     await query.edit_message_text("❌ Не удалось извлечь номер тендера.")
@@ -678,10 +766,11 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     await query.edit_message_text(f"❌ Ошибка при отправке файла: {str(e)}")
             elif query.data == "find_suppliers":
                 # После анализа: выводим кнопки по всем товарным позициям (только по GPT)
-                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
-                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                if not valid:
+                    await handle_session_error(query)
                     return
-                search_queries = self.user_sessions[user_id].get('search_queries', {})
+                search_queries = session.get('search_queries', {})
                 if not search_queries:
                     await query.edit_message_text("В этом тендере отсутствуют товарные позиции (ИИ не выделил их из анализа). Возможно, это закупка услуг или данные не заполнены.")
                     return
@@ -694,11 +783,12 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             elif query.data.startswith("find_supplier_"):
-                if user_id not in self.user_sessions or self.user_sessions[user_id]['status'] not in ['ready_for_analysis', 'completed']:
-                    await query.edit_message_text("❌ Данные тендера не найдены. Пожалуйста, отправьте номер тендера заново.")
+                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                if not valid:
+                    await handle_session_error(query)
                     return
                 idx = int(query.data.split('_')[-1])
-                search_queries = self.user_sessions[user_id].get('search_queries', {})
+                search_queries = session.get('search_queries', {})
                 if idx >= len(search_queries):
                     await query.edit_message_text("❌ Позиция не найдена.")
                     return

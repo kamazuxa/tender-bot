@@ -16,6 +16,7 @@ def print_banner():
 =====================================
 
 Telegram-бот для анализа тендеров в госзакупках
+Версия с улучшениями: retry-логика, кэширование, прогресс-бар
     """)
 
 def check_python_version():
@@ -85,7 +86,7 @@ def validate_config():
         return False
     
     # Проверяем наличие обязательных переменных
-    required_vars = ["TELEGRAM_TOKEN", "DAMIA_API_KEY", "OPENAI_API_KEY"]
+    required_vars = ["TELEGRAM_TOKEN", "DAMIA_API_KEY", "OPENAI_API_KEY", "SERPAPI_KEY"]
     missing_vars = []
     
     with open(env_file, 'r') as f:
@@ -112,12 +113,36 @@ def run_tests():
         import damia
         import downloader
         import analyzer
+        import utils
+        import handlers
         print("✅ Все модули импортируются корректно")
     except ImportError as e:
         print(f"❌ Ошибка импорта: {e}")
         return False
     
     return True
+
+def check_new_features():
+    """Проверяет новые функции"""
+    print("\n🆕 Проверка новых функций...")
+    
+    try:
+        # Проверяем retry-логику
+        from utils import retry_on_error
+        print("✅ Retry-логика доступна")
+        
+        # Проверяем кэширование
+        from utils import get_cache_key, cache_analysis_result, get_cached_analysis
+        print("✅ Система кэширования доступна")
+        
+        # Проверяем валидацию конфигурации
+        from config import validate_config
+        print("✅ Валидация конфигурации доступна")
+        
+        return True
+    except Exception as e:
+        print(f"❌ Ошибка проверки новых функций: {e}")
+        return False
 
 def main():
     """Основная функция установки"""
@@ -144,10 +169,13 @@ def main():
     # Запускаем тесты
     tests_ok = run_tests()
     
+    # Проверяем новые функции
+    features_ok = check_new_features()
+    
     print("\n" + "="*50)
     print("🎉 Установка завершена!")
     
-    if config_ok and tests_ok:
+    if config_ok and tests_ok and features_ok:
         print("\n✅ Бот готов к запуску!")
         print("🚀 Запустите бота командой: python bot.py")
     else:
@@ -156,9 +184,12 @@ def main():
             print("   - Заполните API ключи в файле .env")
         if not tests_ok:
             print("   - Исправьте ошибки в коде")
+        if not features_ok:
+            print("   - Проверьте установку зависимостей")
     
     print("\n📖 Подробная документация: README.md")
     print("🔧 Настройка: env_example.txt")
+    print("🧪 Тестирование: python test_bot.py")
 
 if __name__ == "__main__":
     main() 

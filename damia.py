@@ -1,6 +1,7 @@
 import httpx
 import logging
 import json
+import asyncio
 from typing import Dict, Optional, List
 from config import DAMIA_API_KEY
 
@@ -10,12 +11,35 @@ class DamiaAPIError(Exception):
     """Исключение для ошибок API DaMIA"""
     pass
 
+# Retry настройки
+MAX_RETRIES = 3
+RETRY_DELAY = 1  # секунды
+
+def retry_on_error(max_retries: int = MAX_RETRIES, delay: float = RETRY_DELAY):
+    """Декоратор для retry-логики"""
+    def decorator(func):
+        async def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries):
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    logger.warning(f"[damia] Попытка {attempt + 1}/{max_retries} не удалась: {e}")
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(delay * (2 ** attempt))  # Экспоненциальная задержка
+            logger.error(f"[damia] Все попытки исчерпаны: {last_exception}")
+            raise last_exception
+        return wrapper
+    return decorator
+
 class DamiaClient:
     def __init__(self, api_key: str):
         self.api_key = api_key
         self.base_url = "https://api.damia.ru"
         self.headers = {"Authorization": f"Api-Key {api_key}"}
     
+    @retry_on_error()
     async def get_zakupka(self, reg_number: str, actual: int = 1) -> Optional[Dict]:
         url = f"https://api.damia.ru/zakupki/zakupka"
         params = {"regn": reg_number, "actual": actual, "key": self.api_key}
@@ -25,6 +49,7 @@ class DamiaClient:
                 return resp.json()
         return None
     
+    @retry_on_error()
     async def get_contract(self, reg_number: str) -> Optional[Dict]:
         url = f"https://api.damia.ru/zakupki/contract"
         params = {"regn": reg_number, "key": self.api_key}
@@ -34,6 +59,7 @@ class DamiaClient:
                 return resp.json()
         return None
     
+    @retry_on_error()
     async def zsearch(self, q: str, **kwargs) -> Optional[Dict]:
         url = f"https://damia.ru/api-zakupki/zsearch"
         params = {"q": q, "key": self.api_key}
@@ -44,6 +70,7 @@ class DamiaClient:
                 return resp.json()
         return None
     
+    @retry_on_error()
     async def get_tender_info(self, reg_number: str) -> Optional[Dict]:
         """
         Получает информацию о тендере по регистрационному номеру

@@ -375,6 +375,18 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     await update.message.reply_text("❌ Не удалось извлечь номер тендера. Пожалуйста, отправьте корректный номер.")
                     return
                 
+                logger.info(f"[bot] Извлечен номер тендера: {tender_number} из сообщения: {message_text[:100]}...")
+                
+                # Специальная обработка для 223-ФЗ
+                if 'notice223' in message_text and len(tender_number) < 19:
+                    logger.info(f"[bot] Обнаружен тендер 223-ФЗ с noticeInfoId: {tender_number}")
+                    await update.message.reply_text(
+                        f"🔍 **Тендер 223-ФЗ обнаружен**\n\n"
+                        f"**NoticeInfoId:** `{tender_number}`\n\n"
+                        f"**Примечание:** Тендеры по 223-ФЗ имеют ограниченную поддержку в DaMIA API.\n"
+                        f"Попробуем найти данные..."
+                    )
+                
                 # Получаем данные тендера
                 tender_info = await damia_client.get_tender_info(tender_number)
                 if not tender_info:

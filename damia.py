@@ -256,28 +256,49 @@ class DamiaClient:
     def extract_tender_number(self, text: str) -> Optional[str]:
         """
         Извлекает номер тендера из текста (ссылка или номер)
-        Поддерживает различные форматы
+        Поддерживает различные форматы включая тендеры по 223-ФЗ
         """
         import re
         
+        # Сначала проверяем специальные случаи для 223-ФЗ
+        # Для ссылок вида: https://zakupki.gov.ru/epz/order/notice/notice223/common-info.html?noticeInfoId=18488839
+        # Нужно извлекать правильный номер тендера, а не noticeInfoId
+        
+        # Паттерн для 223-ФЗ с noticeInfoId
+        fz223_pattern = r'zakupki\.gov\.ru/epz/order/notice/notice223/common-info\.html\?noticeInfoId=(\d+)'
+        fz223_match = re.search(fz223_pattern, text)
+        if fz223_match:
+            notice_info_id = fz223_match.group(1)
+            logger.info(f"[damia] Найден noticeInfoId для 223-ФЗ: {notice_info_id}")
+            # Для 223-ФЗ noticeInfoId может быть частью номера тендера
+            # Попробуем найти полный номер в тексте
+            full_number_pattern = r'\b\d{19,20}\b'
+            full_match = re.search(full_number_pattern, text)
+            if full_match:
+                return full_match.group(0)
+            # Если полный номер не найден, возвращаем noticeInfoId
+            return notice_info_id
+        
         # Паттерны для поиска номеров тендеров
         patterns = [
-            r'\d{19}',  # 19-значный номер
-            r'\d{20}',  # 20-значный номер
+            r'\b\d{19}\b',  # 19-значный номер
+            r'\b\d{20}\b',  # 20-значный номер
             r'zakupki\.gov\.ru/epz/order/notice/.*?(\d{19})',  # Ссылка на госзакупки с 19-значным номером
             r'zakupki\.gov\.ru/.*?(\d{19})',  # Общая ссылка на госзакупки с 19-значным номером
-            r'noticeInfoId=(\d+)',  # Новый формат с noticeInfoId
             r'regNumber=(\d+)',  # Формат с regNumber
             r'orderId=(\d+)',  # Формат с orderId
-            r'zakupki\.gov\.ru/epz/order/notice/notice223/common-info\.html\?noticeInfoId=(\d+)',  # Конкретный формат 223-ФЗ
             r'zakupki\.gov\.ru/epz/order/notice/ea44/common-info\.html\?regNumber=(\d+)',  # Формат 44-ФЗ
+            r'noticeInfoId=(\d+)',  # Общий формат с noticeInfoId (если не 223-ФЗ)
         ]
         
         for pattern in patterns:
             match = re.search(pattern, text)
             if match:
-                return match.group(1) if len(match.groups()) > 0 else match.group(0)
+                extracted = match.group(1) if len(match.groups()) > 0 else match.group(0)
+                logger.info(f"[damia] Извлечен номер тендера: {extracted}")
+                return extracted
         
+        logger.warning(f"[damia] Не удалось извлечь номер тендера из текста: {text[:100]}...")
         return None
     
     def format_tender_info(self, data: Dict) -> Dict:

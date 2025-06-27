@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 import mimetypes
 import functools
 import time
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, Union, List
 try:
     import httpx
 except ImportError:
@@ -101,15 +101,22 @@ def safe_get_message(update: Update) -> Optional[Any]:
         return update.callback_query.message
     return None
 
-def validate_user_session(user_id: int, user_sessions: Dict, required_status: str = None) -> tuple[bool, Optional[Dict]]:
+def validate_user_session(user_id: int, user_sessions: Dict, required_status: Union[str, List[str]] = None) -> tuple[bool, Optional[Dict]]:
     """Проверяет валидность сессии пользователя"""
     if user_id not in user_sessions:
         return False, None
     
     session = user_sessions[user_id]
     
-    if required_status and session.get('status') != required_status:
-        return False, session
+    if required_status:
+        if isinstance(required_status, list):
+            # Если передали список статусов, проверяем что текущий статус в списке
+            if session.get('status') not in required_status:
+                return False, session
+        else:
+            # Если передали строку, проверяем точное совпадение
+            if session.get('status') != required_status:
+                return False, session
     
     return True, session
 
@@ -647,7 +654,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 await self.cleanup_command(update, context)
             elif query.data == "products":
                 # Обработка кнопки "Товарные позиции"
-                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
                 if not valid:
                     await handle_session_error(query)
                     return
@@ -656,7 +663,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 await self._send_products_list_to_chat(context.bot, query.message.chat_id, tender_data, page=0)
             elif query.data == "documents":
                 # Обработка кнопки "Документы"
-                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
                 if not valid:
                     await handle_session_error(query)
                     return
@@ -666,17 +673,11 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 if not reg_number:
                     await query.edit_message_text("❌ Не удалось извлечь номер тендера.")
                     return
-                # Отправляем новое сообщение вместо редактирования
-                await self._send_documents_list_with_download(
-                    context.bot, 
-                    query.message.chat_id, 
-                    tender_data, 
-                    reg_number, 
-                    page=0
-                )
+                # Отправляем список документов с кнопками скачивания
+                await self._send_documents_list_with_download(context.bot, query.message.chat_id, tender_data, reg_number, page=0)
             elif query.data == "detailed_info":
                 # Обработка кнопки "Подробная информация"
-                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
                 if not valid:
                     await handle_session_error(query)
                     return
@@ -733,7 +734,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     page = int(query.data.split("_")[2])
                 except Exception:
                     page = 0
-                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
                 if not valid:
                     await handle_session_error(query)
                     return
@@ -745,7 +746,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 await query.answer("Текущая страница")
             elif query.data.startswith("documents_page_"):
                 page = int(query.data.split('_')[-1])
-                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
                 if not valid:
                     await handle_session_error(query)
                     return
@@ -764,7 +765,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 )
             elif query.data.startswith("download_"):
                 file_id = query.data.split('_', 1)[1]
-                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
                 if not valid:
                     await handle_session_error(query)
                     return
@@ -790,7 +791,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     await query.edit_message_text(f"❌ Ошибка при отправке файла: {str(e)}")
             elif query.data == "find_suppliers":
                 # После анализа: выводим кнопки по всем товарным позициям (только по GPT)
-                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
                 if not valid:
                     await handle_session_error(query)
                     return
@@ -807,7 +808,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             elif query.data.startswith("find_supplier_"):
-                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
+                valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
                 if not valid:
                     await handle_session_error(query)
                     return

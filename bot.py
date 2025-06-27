@@ -739,9 +739,9 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     await handle_session_error(query)
                     return
                 tender_data = session['tender_data']
-                # Навигация: отправляем новое сообщение вместо редактирования
-                logger.info(f"[bot] Навигация по товарам: page={page}")
-                await self._send_products_list_to_chat(context.bot, query.message.chat_id, tender_data, page=page)
+                # Навигация: редактируем текущее сообщение
+                logger.info(f"[bot] Навигация по товарам: page={page}, message_id={query.message.message_id}")
+                await self._send_products_list_to_chat(context.bot, query.message.chat_id, tender_data, page=page, message_id=query.message.message_id)
             elif query.data == "current_page":
                 await query.answer("Текущая страница")
             elif query.data.startswith("documents_page_"):
@@ -755,10 +755,11 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 if not reg_number:
                     await query.edit_message_text("❌ Не удалось извлечь номер тендера.")
                     return
-                # Отправляем новое сообщение вместо редактирования
-                await self._send_documents_list_with_download(
+                # Навигация: редактируем текущее сообщение
+                await self._update_documents_message(
                     context.bot, 
                     query.message.chat_id, 
+                    query.message.message_id, 
                     tender_data, 
                     reg_number, 
                     page
@@ -1003,7 +1004,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 results.append(f"<b>Сайт:</b> {url} (релевантность: {relevance:.1f}%)\n[Ошибка при обращении к GPT]")
         return "\n\n".join(results)
     
-    async def _send_products_list_to_chat(self, bot, chat_id: int, tender_data: dict, page: int = 0) -> None:
+    async def _send_products_list_to_chat(self, bot, chat_id: int, tender_data: dict, page: int = 0, message_id: int = None) -> None:
         """Отправляет список товарных позиций с пагинацией"""
         # Если данные содержат номер тендера как ключ, извлекаем продукты из внутреннего объекта
         if len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
@@ -1058,8 +1059,18 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         
         reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
         
-        # Всегда отправляем новое сообщение
-        await bot.send_message(chat_id=chat_id, text=products_text, parse_mode='Markdown', reply_markup=reply_markup)
+        # Если передан message_id, редактируем существующее сообщение
+        if message_id is not None:
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message_id,
+                text=products_text,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+        else:
+            # Иначе отправляем новое сообщение
+            await bot.send_message(chat_id=chat_id, text=products_text, parse_mode='Markdown', reply_markup=reply_markup)
     
     async def _send_documents_list_with_download(self, bot, chat_id: int, tender_data: dict, reg_number: str, page: int = 0) -> None:
         """Отправляет список документов с возможностью скачивания и пагинацией"""
@@ -1185,6 +1196,71 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         # Можно сделать умнее, если в анализе есть ключевые слова
         subject = formatted_info.get('subject', '')
         return [subject] if subject else []
+
+    async def _update_documents_message(self, bot, chat_id: int, message_id: int, tender_data: dict, reg_number: str, page: int) -> None:
+        """Обновляет сообщение с документами"""
+        # Если данные содержат номер тендера как ключ, извлекаем документы из внутреннего объекта
+        if len(tender_data) == 1 and isinstance(list(tender_data.values())[0], dict):
+            tender_data = list(tender_data.values())[0]
+        
+        documents = tender_data.get('Документы', [])
+        
+        if not documents:
+            await bot.send_message(chat_id=chat_id, text="📄 Документы не найдены")
+            return
+        
+        # Настройки пагинации
+        items_per_page = 8
+        total_pages = (len(documents) + items_per_page - 1) // items_per_page
+        start_idx = page * items_per_page
+        end_idx = min(start_idx + items_per_page, len(documents))
+        
+        # Создаем список документов для текущей страницы
+        docs_text = f"📄 **Документы тендера** (страница {page + 1} из {total_pages}):\n\n"
+        
+        for i, doc in enumerate(documents[start_idx:end_idx], start_idx + 1):
+            name = doc.get('Название', 'Без названия')
+            date = doc.get('ДатаРазм', '')
+            files = doc.get('Файлы', [])
+            
+            docs_text += f"{i}. **{name}**\n"
+            if date:
+                docs_text += f"   📅 Дата: {format_date(date)}\n"
+            if files:
+                docs_text += f"   📎 Файлов: {len(files)}\n"
+            docs_text += "\n"
+        
+        docs_text += "💾 **Скачать все документы:**"
+        
+        # Создаем кнопки навигации и скачивания
+        keyboard = []
+        
+        # Кнопки навигации
+        if total_pages > 1:
+            nav_buttons = []
+            if page > 0:
+                nav_buttons.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"documents_page_{page-1}"))
+            
+            nav_buttons.append(InlineKeyboardButton(f"{page + 1}/{total_pages}", callback_data="current_page"))
+            
+            if page < total_pages - 1:
+                nav_buttons.append(InlineKeyboardButton("Вперед ➡️", callback_data=f"documents_page_{page+1}"))
+            
+            if nav_buttons:
+                keyboard.append(nav_buttons)
+        
+        # Кнопка скачивания
+        keyboard.append([InlineKeyboardButton("📥 Скачать документы", callback_data=f"download_{reg_number}")])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await bot.edit_message_text(
+            chat_id=chat_id,
+            message_id=message_id,
+            text=docs_text,
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
 
 # Создаем и запускаем бота
 if __name__ == "__main__":

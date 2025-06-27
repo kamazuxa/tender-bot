@@ -270,21 +270,37 @@ class DamiaClient:
         if fz223_match:
             notice_info_id = fz223_match.group(1)
             logger.info(f"[damia] Найден noticeInfoId для 223-ФЗ: {notice_info_id}")
-            # Для 223-ФЗ noticeInfoId может быть частью номера тендера
-            # Попробуем найти полный номер в тексте
-            full_number_pattern = r'\b\d{19,20}\b'
-            full_match = re.search(full_number_pattern, text)
-            if full_match:
-                return full_match.group(0)
-            # Если полный номер не найден, возвращаем noticeInfoId
-            return notice_info_id
+            
+            # Для 223-ФЗ ищем полный регистрационный номер в тексте
+            # Поддерживаем номера разной длины (11-20 цифр)
+            full_number_pattern = r'\b\d{11,20}\b'
+            full_matches = re.findall(full_number_pattern, text)
+            
+            if full_matches:
+                # Берем первый найденный полный номер
+                full_number = full_matches[0]
+                logger.info(f"[damia] Найден полный номер тендера 223-ФЗ: {full_number}")
+                return full_number
+            else:
+                # Если полный номер не найден, возвращаем noticeInfoId
+                # но добавляем предупреждение в лог
+                logger.warning(f"[damia] Для 223-ФЗ найден только noticeInfoId: {notice_info_id}. Полный номер не найден в тексте.")
+                return notice_info_id
         
-        # Паттерны для поиска номеров тендеров
+        # Паттерны для поиска номеров тендеров (поддерживаем разную длину)
         patterns = [
+            r'\b\d{11}\b',  # 11-значный номер (как 32514989413)
+            r'\b\d{12}\b',  # 12-значный номер
+            r'\b\d{13}\b',  # 13-значный номер
+            r'\b\d{14}\b',  # 14-значный номер
+            r'\b\d{15}\b',  # 15-значный номер
+            r'\b\d{16}\b',  # 16-значный номер
+            r'\b\d{17}\b',  # 17-значный номер
+            r'\b\d{18}\b',  # 18-значный номер
             r'\b\d{19}\b',  # 19-значный номер
             r'\b\d{20}\b',  # 20-значный номер
-            r'zakupki\.gov\.ru/epz/order/notice/.*?(\d{19})',  # Ссылка на госзакупки с 19-значным номером
-            r'zakupki\.gov\.ru/.*?(\d{19})',  # Общая ссылка на госзакупки с 19-значным номером
+            r'zakupki\.gov\.ru/epz/order/notice/.*?(\d{11,20})',  # Ссылка на госзакупки с номером
+            r'zakupki\.gov\.ru/.*?(\d{11,20})',  # Общая ссылка на госзакупки с номером
             r'regNumber=(\d+)',  # Формат с regNumber
             r'orderId=(\d+)',  # Формат с orderId
             r'zakupki\.gov\.ru/epz/order/notice/ea44/common-info\.html\?regNumber=(\d+)',  # Формат 44-ФЗ

@@ -378,8 +378,62 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 # Получаем данные тендера
                 tender_info = await damia_client.get_tender_info(tender_number)
                 if not tender_info:
-                    await update.message.reply_text("❌ Тендер не найден или произошла ошибка при получении данных.")
+                    # Проверяем доступность API
+                    api_available = await damia_client.test_api_connection()
+                    
+                    if not api_available:
+                        await update.message.reply_text(
+                            f"❌ **Проблема с API**\n\n"
+                            f"**Номер:** `{tender_number}`\n\n"
+                            f"**Проблема:** DaMIA API временно недоступен\n\n"
+                            f"**Рекомендации:**\n"
+                            f"• Попробуйте позже (через 5-10 минут)\n"
+                            f"• Проверьте интернет-соединение\n"
+                            f"• Обратитесь к администратору\n\n"
+                            f"**Статус:** API недоступен"
+                        )
+                    else:
+                        await update.message.reply_text(
+                            f"❌ **Тендер не найден**\n\n"
+                            f"**Номер:** `{tender_number}`\n\n"
+                            f"**Что было проверено:**\n"
+                            f"• Основные эндпоинты DaMIA API\n"
+                            f"• Поиск по номеру тендера\n"
+                            f"• Альтернативные эндпоинты\n\n"
+                            f"**Возможные причины:**\n"
+                            f"• Тендер по 223-ФЗ (ограниченная поддержка)\n"
+                            f"• Тендер недавно опубликован (обновится через 1-2 дня)\n"
+                            f"• Тендер завершен и удален из базы\n"
+                            f"• Неверный номер тендера\n"
+                            f"• Временные проблемы с API\n\n"
+                            f"**Рекомендации:**\n"
+                            f"• Проверьте номер на сайте zakupki.gov.ru\n"
+                            f"• Попробуйте другой номер тендера\n"
+                            f"• Подождите 1-2 дня для новых тендеров\n"
+                            f"• Обратитесь к администратору\n\n"
+                            f"**Примеры корректных номеров:**\n"
+                            f"`0123456789012345678`\n"
+                            f"`01234567890123456789`"
+                        )
                     return
+                
+                # Проверяем, что ответ не пустой
+                if isinstance(tender_info, dict) and len(tender_info) == 1:
+                    # Если ответ в формате {'number': []} - это пустой ответ
+                    first_key = list(tender_info.keys())[0]
+                    if not tender_info[first_key] or (isinstance(tender_info[first_key], list) and len(tender_info[first_key]) == 0):
+                        await update.message.reply_text(
+                            f"❌ Тендер с номером {tender_number} найден в базе, но данные отсутствуют.\n\n"
+                            f"**Возможные причины:**\n"
+                            f"• Тендер по 223-ФЗ (ограниченная поддержка)\n"
+                            f"• Данные еще не загружены в базу\n"
+                            f"• Тендер в архиве\n\n"
+                            f"**Попробуйте:**\n"
+                            f"• Использовать тендер по 44-ФЗ\n"
+                            f"• Проверить на сайте zakupki.gov.ru\n"
+                            f"• Обратиться к администратору"
+                        )
+                        return
                 
                 # Обновляем статус
                 session['status'] = 'tender_found'

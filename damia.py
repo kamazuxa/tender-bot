@@ -61,38 +61,182 @@ class DamiaClient:
     
     @retry_on_error()
     async def zsearch(self, q: str, **kwargs) -> Optional[Dict]:
-        url = f"https://damia.ru/api-zakupki/zsearch"
-        params = {"q": q, "key": self.api_key}
+        """Поиск тендеров по запросу согласно документации DaMIA API"""
+        # Основной URL поиска согласно документации
+        url = "https://damia.ru/api-zakupki/zsearch"
+        
+        # Базовые параметры поиска
+        params = {
+            "q": q,
+            "key": self.api_key
+        }
+        
+        # Добавляем дополнительные параметры если переданы
         params.update(kwargs)
-        async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.get(url, params=params)
-            if resp.status_code == 200 and resp.text.strip():
-                return resp.json()
+        
+        try:
+            # Используем правильные заголовки для API
+            headers = {
+                "User-Agent": "TenderBot/1.0",
+                "Accept": "application/json",
+                "Content-Type": "application/json"
+            }
+            
+            async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+                logger.info(f"[damia] Поиск по запросу: {q}")
+                resp = await client.get(url, params=params, headers=headers)
+                logger.info(f"[damia] Статус ответа: {resp.status_code}")
+                
+                if resp.status_code == 200:
+                    if resp.text.strip():
+                        try:
+                            data = resp.json()
+                            logger.info(f"[damia] Получены данные поиска: {len(str(data))} символов")
+                            return data
+                        except json.JSONDecodeError as e:
+                            logger.error(f"[damia] Ошибка парсинга JSON: {e}")
+                            logger.error(f"[damia] Ответ сервера: {resp.text[:500]}")
+                            return None
+                    else:
+                        logger.warning(f"[damia] Пустой ответ от сервера")
+                        return None
+                elif resp.status_code == 301 or resp.status_code == 302:
+                    logger.warning(f"[damia] Получен редирект {resp.status_code}")
+                    redirect_url = resp.headers.get('Location')
+                    if redirect_url:
+                        logger.info(f"[damia] Следуем редиректу на: {redirect_url}")
+                        redirect_resp = await client.get(redirect_url, headers=headers)
+                        if redirect_resp.status_code == 200 and redirect_resp.text.strip():
+                            try:
+                                data = redirect_resp.json()
+                                return data
+                            except json.JSONDecodeError:
+                                logger.error(f"[damia] Ошибка парсинга JSON после редиректа")
+                                return None
+                else:
+                    logger.error(f"[damia] Ошибка API: {resp.status_code} - {resp.text[:200]}")
+                    return None
+                    
+        except httpx.TimeoutException:
+            logger.error(f"[damia] Таймаут при поиске: {q}")
+            return None
+        except httpx.RequestError as e:
+            logger.error(f"[damia] Ошибка сети при поиске: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"[damia] Неожиданная ошибка при поиске: {e}")
+            return None
+        
         return None
     
     @retry_on_error()
     async def get_tender_info(self, reg_number: str) -> Optional[Dict]:
         """
         Получает информацию о тендере по регистрационному номеру
-        Пробует разные эндпоинты для поиска данных
+        Пробует разные эндпоинты для поиска данных согласно документации DaMIA API
         """
+        logger.info(f"[damia] Поиск тендера {reg_number}")
+        
         # Сначала пробуем zakupka, потом contract
         data = await self.get_zakupka(reg_number)
         if data and not self._is_empty_response(data):
+            logger.info(f"[damia] Тендер {reg_number} найден через zakupka")
             return data
             
         data = await self.get_contract(reg_number)
         if data and not self._is_empty_response(data):
+            logger.info(f"[damia] Тендер {reg_number} найден через contract")
             return data
             
-        # Если не нашли, пробуем поиск по номеру
+        # Если не нашли, пробуем поиск по номеру с разными стратегиями
         logger.warning(f"[damia] Тендер {reg_number} не найден в основных эндпоинтах, пробуем поиск")
-        search_data = await self.zsearch(reg_number)
-        if search_data and not self._is_empty_response(search_data):
-            return search_data
+        
+        # Пробуем разные варианты поиска согласно документации API
+        search_strategies = [
+            # Прямой поиск по номеру
+            {"q": reg_number},
             
+            # Поиск с символом номера
+            {"q": f"№{reg_number}"},
+            
+            # Поиск с ключевыми словами
+            {"q": f"тендер {reg_number}"},
+            {"q": f"закупка {reg_number}"},
+            
+            # Поиск с ограничением по датам (последние 2 года)
+            {"q": reg_number, "from_date": "2022-01-01"},
+            {"q": reg_number, "to_date": "2024-12-31"},
+            
+            # Поиск по разным ФЗ
+            {"q": reg_number, "fz": 44},
+            {"q": reg_number, "fz": 223},
+            
+            # Поиск с разными статусами
+            {"q": reg_number, "status": 1},  # Подача заявок
+            {"q": reg_number, "status": 2},  # Работа комиссии
+            {"q": reg_number, "status": 3},  # Закупка завершена
+        ]
+        
+        for strategy in search_strategies:
+            try:
+                search_data = await self.zsearch(**strategy)
+                if search_data and not self._is_empty_response(search_data):
+                    logger.info(f"[damia] Тендер {reg_number} найден через поиск с параметрами: {strategy}")
+                    return search_data
+            except Exception as e:
+                logger.warning(f"[damia] Ошибка при поиске с параметрами {strategy}: {e}")
+                continue
+        
+        # Последняя попытка - пробуем альтернативные эндпоинты
+        logger.warning(f"[damia] Пробуем альтернативные эндпоинты для тендера {reg_number}")
+        alt_data = await self._try_alternative_endpoints(reg_number)
+        if alt_data:
+            return alt_data
+        
         logger.error(f"[damia] Тендер {reg_number} не найден ни в одном эндпоинте")
         return None
+    
+    async def _try_alternative_endpoints(self, reg_number: str) -> Optional[Dict]:
+        """Пробует альтернативные эндпоинты для получения данных тендера"""
+        alternative_urls = [
+            f"https://api.damia.ru/zakupki/tender/{reg_number}",
+            f"https://api.damia.ru/tender/{reg_number}",
+            f"https://api.damia.ru/zakupki/info/{reg_number}",
+            f"https://api.damia.ru/info/{reg_number}"
+        ]
+        
+        for url in alternative_urls:
+            try:
+                params = {"key": self.api_key}
+                async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+                    resp = await client.get(url, params=params)
+                    logger.info(f"[damia] Альтернативный эндпоинт {url}: статус {resp.status_code}")
+                    
+                    if resp.status_code == 200 and resp.text.strip():
+                        data = resp.json()
+                        if data and not self._is_empty_response(data):
+                            logger.info(f"[damia] Тендер найден через альтернативный эндпоинт: {url}")
+                            return data
+            except Exception as e:
+                logger.warning(f"[damia] Ошибка при обращении к альтернативному эндпоинту {url}: {e}")
+                continue
+        
+        return None
+    
+    async def test_api_connection(self) -> bool:
+        """Проверяет доступность DaMIA API"""
+        try:
+            # Пробуем простой запрос к API
+            test_url = "https://api.damia.ru/zakupki/zakupka"
+            params = {"regn": "0373200193019000001", "key": self.api_key}
+            
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(test_url, params=params)
+                logger.info(f"[damia] Тест API: статус {resp.status_code}")
+                return resp.status_code in [200, 404]  # 404 тоже нормально - значит API работает
+        except Exception as e:
+            logger.error(f"[damia] Ошибка при тестировании API: {e}")
+            return False
     
     def _is_empty_response(self, data: Dict) -> bool:
         """Проверяет, является ли ответ пустым или неинформативным"""
@@ -100,7 +244,13 @@ class DamiaClient:
             return True
         
         # Проверяем основные поля, которые должны быть в ответе
-        required_fields = ['РазмОрг', 'Продукт', 'НачЦена']
+        required_fields = ['РазмОрг', 'Продукт', 'НачЦена', 'Заказчик', 'Статус']
+        
+        # Если это поисковый результат, проверяем другие поля
+        if 'ФЗ' in data:
+            # Это результат поиска, проверяем наличие данных
+            return len(data) <= 1  # Только поле ФЗ без данных
+        
         return not any(field in data for field in required_fields)
     
     def extract_tender_number(self, text: str) -> Optional[str]:

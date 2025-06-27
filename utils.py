@@ -6,6 +6,7 @@ import functools
 import time
 import json
 import hashlib
+import os
 from typing import Optional, Dict, Any, Callable
 from telegram import Update
 
@@ -100,10 +101,16 @@ def format_file_size(size_bytes: int) -> str:
     return f"{size_bytes:.1f}{size_names[i]}"
 
 def sanitize_filename(filename: str) -> str:
-    """Очищает имя файла от небезопасных символов"""
+    """Очищает имя файла от небезопасных символов и лишних подчёркиваний"""
     import re
-    # Убираем небезопасные символы
-    safe_name = re.sub(r'[^\w\-_.]', '_', filename)
+    # Заменяем пробелы и скобки на подчёркивание
+    safe_name = re.sub(r'[\s()]+', '_', filename)
+    # Убираем все остальные небезопасные символы
+    safe_name = re.sub(r'[^\w\-_.]', '', safe_name)
+    # Убираем повторяющиеся подчёркивания
+    safe_name = re.sub(r'_+', '_', safe_name)
+    # Убираем подчёркивания в начале и конце
+    safe_name = safe_name.strip('_')
     # Ограничиваем длину
     if len(safe_name) > 100:
         name, ext = os.path.splitext(safe_name)

@@ -105,8 +105,13 @@ class DamiaClient:
         patterns = [
             r'\d{19}',  # 19-значный номер
             r'\d{20}',  # 20-значный номер
-            r'zakupki\.gov\.ru/epz/order/notice/.*?(\d{19})',  # Ссылка на госзакупки
-            r'zakupki\.gov\.ru/.*?(\d{19})',  # Общая ссылка на госзакупки
+            r'zakupki\.gov\.ru/epz/order/notice/.*?(\d{19})',  # Ссылка на госзакупки с 19-значным номером
+            r'zakupki\.gov\.ru/.*?(\d{19})',  # Общая ссылка на госзакупки с 19-значным номером
+            r'noticeInfoId=(\d+)',  # Новый формат с noticeInfoId
+            r'regNumber=(\d+)',  # Формат с regNumber
+            r'orderId=(\d+)',  # Формат с orderId
+            r'zakupki\.gov\.ru/epz/order/notice/notice223/common-info\.html\?noticeInfoId=(\d+)',  # Конкретный формат 223-ФЗ
+            r'zakupki\.gov\.ru/epz/order/notice/ea44/common-info\.html\?regNumber=(\d+)',  # Формат 44-ФЗ
         ]
         
         for pattern in patterns:

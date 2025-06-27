@@ -451,8 +451,8 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
-            # Разбиваем длинную информацию на части
-            max_length = 4000  # Оставляем запас для Telegram
+            # Разбиваем длинную информацию на части с более консервативным лимитом
+            max_length = 3000  # Уменьшаем лимит для надежности
             if len(formatted_info) > max_length:
                 # Разбиваем на части
                 parts = []
@@ -471,25 +471,47 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     parts.append(current_part.strip())
                 
                 # Отправляем первую часть с кнопками
-                await update.message.reply_text(
-                    f"📋 **Информация о тендере** (часть 1 из {len(parts)}):\n\n{parts[0]}",
-                    parse_mode='Markdown',
-                    reply_markup=reply_markup
-                )
+                try:
+                    await update.message.reply_text(
+                        f"📋 **Информация о тендере** (часть 1 из {len(parts)}):\n\n{parts[0]}",
+                        parse_mode='Markdown',
+                        reply_markup=reply_markup
+                    )
+                except Exception as e:
+                    logger.error(f"[bot] Ошибка при отправке первой части: {e}")
+                    # Пробуем отправить без форматирования
+                    await update.message.reply_text(
+                        f"📋 Информация о тендере (часть 1 из {len(parts)}):\n\n{parts[0]}",
+                        reply_markup=reply_markup
+                    )
                 
                 # Отправляем остальные части
                 for i, part in enumerate(parts[1:], 2):
-                    await update.message.reply_text(
-                        f"📋 **Продолжение информации** (часть {i} из {len(parts)}):\n\n{part}",
-                        parse_mode='Markdown'
-                    )
+                    try:
+                        await update.message.reply_text(
+                            f"📋 **Продолжение информации** (часть {i} из {len(parts)}):\n\n{part}",
+                            parse_mode='Markdown'
+                        )
+                    except Exception as e:
+                        logger.error(f"[bot] Ошибка при отправке части {i}: {e}")
+                        await update.message.reply_text(
+                            f"📋 Продолжение информации (часть {i} из {len(parts)}):\n\n{part}"
+                        )
             else:
                 # Отправляем основную информацию одним сообщением
-                await update.message.reply_text(
-                    f"📋 **Информация о тендере**\n\n{formatted_info}",
-                    parse_mode='Markdown',
-                    reply_markup=reply_markup
-                )
+                try:
+                    await update.message.reply_text(
+                        f"📋 **Информация о тендере**\n\n{formatted_info}",
+                        parse_mode='Markdown',
+                        reply_markup=reply_markup
+                    )
+                except Exception as e:
+                    logger.error(f"[bot] Ошибка при отправке основного сообщения: {e}")
+                    # Пробуем отправить без форматирования
+                    await update.message.reply_text(
+                        f"📋 Информация о тендере\n\n{formatted_info}",
+                        reply_markup=reply_markup
+                    )
             
         except Exception as e:
             logger.error(f"[bot] Ошибка при отправке информации о тендере: {e}")
@@ -1142,7 +1164,12 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
     
     def run(self):
         try:
+            # Настройка с таймаутами для предотвращения зависаний
             self.app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+            
+            # Настройка таймаутов для HTTP запросов
+            self.app.bot.request.timeout = 30.0  # 30 секунд таймаут для запросов
+            
             self.setup_handlers()
             logger.info("🚀 TenderBot запущен")
             print("🤖 TenderBot запущен и готов к работе!")

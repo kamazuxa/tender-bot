@@ -11,6 +11,8 @@ from config import TELEGRAM_TOKEN, LOG_LEVEL, LOG_FILE, SERPAPI_KEY, OPENAI_API_
 from damia import damia_client, extract_tender_number
 from downloader import downloader
 from analyzer import analyzer
+from supplier_checker import check_supplier, format_supplier_check_result
+from tender_history import TenderHistoryAnalyzer
 import os
 import re
 import zipfile
@@ -258,6 +260,7 @@ class TenderBot:
     def __init__(self):
         self.app = None
         self.user_sessions = {}  # Для хранения состояния пользователей
+        self.history_analyzer = TenderHistoryAnalyzer(damia_client)
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /start"""
@@ -491,12 +494,13 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                         await update.message.reply_text(
                             f"❌ Тендер с номером {tender_number} найден в базе, но данные отсутствуют.\n\n"
                             f"**Возможные причины:**\n"
+                            f"• Сайт zakupki.gov.ru недоступен (технические работы)\n"
                             f"• Тендер по 223-ФЗ (ограниченная поддержка)\n"
                             f"• Данные еще не загружены в базу\n"
                             f"• Тендер в архиве\n\n"
                             f"**Попробуйте:**\n"
+                            f"• Проверить позже (когда сайт заработает)\n"
                             f"• Использовать тендер по 44-ФЗ\n"
-                            f"• Проверить на сайте zakupki.gov.ru\n"
                             f"• Обратиться к администратору"
                         )
                         return
@@ -569,10 +573,11 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             
             # Создаем клавиатуру с кнопками
             keyboard = [
-                [InlineKeyboardButton("📋 Подробная информация", callback_data="detailed_info")],
-                [InlineKeyboardButton("📦 Товарные позиции", callback_data="products")],
-                [InlineKeyboardButton("📄 Документы", callback_data="documents")],
-                [InlineKeyboardButton("🤖 Детальный анализ", callback_data="analyze")]
+                [InlineKeyboardButton("📄 Подробный анализ", callback_data="analyze")],
+                [InlineKeyboardButton("📦 Позиции", callback_data="products_0")],
+                [InlineKeyboardButton("📎 Документы", callback_data="documents_0")],
+                [InlineKeyboardButton("📈 История тендеров", callback_data="history")],
+                [InlineKeyboardButton("🔍 Найти поставщиков", callback_data="find_suppliers")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             
@@ -945,6 +950,52 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 except Exception as e:
                     logger.error(f"[bot] Ошибка при поиске поставщиков: {e}")
                     await query.edit_message_text(f"❌ Произошла ошибка при поиске поставщиков: {str(e)}")
+            elif query.data == "history":
+                # Анализ истории похожих тендеров
+                if not is_valid_session or session.get('status') not in ['ready_for_analysis', 'completed']:
+                    await handle_session_error(query)
+                    return
+                
+                tender_data = session.get('tender_data')
+                if not tender_data:
+                    await handle_session_error(query)
+                    return
+                
+                # Отправляем сообщение о начале анализа
+                await query.edit_message_text("📈 Анализируем историю похожих тендеров...")
+                
+                try:
+                    # Запускаем анализ истории
+                    history_result = await self.history_analyzer.analyze_tender_history(tender_data)
+                    
+                    if history_result.get('success'):
+                        # Отправляем текстовый отчет
+                        await context.bot.send_message(
+                            chat_id=query.from_user.id,
+                            text=history_result['report'],
+                            parse_mode='Markdown'
+                        )
+                        
+                        # Отправляем график если есть
+                        if history_result.get('chart'):
+                            await context.bot.send_photo(
+                                chat_id=query.from_user.id,
+                                photo=history_result['chart'],
+                                caption="📊 График динамики цен по похожим тендерам"
+                            )
+                    else:
+                        error_msg = history_result.get('error', 'Неизвестная ошибка')
+                        await context.bot.send_message(
+                            chat_id=query.from_user.id,
+                            text=f"❌ Ошибка анализа истории: {error_msg}"
+                        )
+                        
+                except Exception as e:
+                    logger.error(f"Ошибка анализа истории тендеров: {e}")
+                    await context.bot.send_message(
+                        chat_id=query.from_user.id,
+                        text="❌ Произошла ошибка при анализе истории тендеров"
+                    )
         except Exception as e:
             logger.error(f"[bot] Ошибка при обработке callback: {e}")
     
@@ -1085,11 +1136,13 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
    – Упаковка / фасовка (например, мешки по 25 кг)  
    – Минимальный объём заказа (если указан)  
    – Название компании или сайта  
+   – ИНН компании (если указан) - ОБЯЗАТЕЛЬНО ищи ИНН в тексте!
    – Телефон, e-mail, мессенджеры  
    – Условия доставки (если есть)  
    – Регион поставки или работы компании (если указан)
 
 ⚠️ Если информация частично отсутствует, просто пропусти этот пункт, не выдумывай.
+🔍 ОСОБОЕ ВНИМАНИЕ: Ищи ИНН в тексте - это важно для проверки надежности поставщика!
 
 Формат ответа:
 Релевантность: да / нет  
@@ -1098,6 +1151,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
 Фасовка: ...  
 Минимальный объём: ...  
 Компания: ...  
+ИНН: ... (если найден)  
 Контакты: ...  
 Сайт: ...  
 Комментарий: ... (если есть)
@@ -1113,7 +1167,25 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     temperature=0.2,
                 )
                 answer = response.choices[0].message.content
-                results.append(f"<b>Сайт:</b> {url} (релевантность: {relevance:.1f}%)\n{answer.strip()}")
+                
+                # Извлекаем ИНН из ответа GPT (если есть)
+                inn_match = re.search(r'ИНН[:\s]*(\d{10,12})', answer, re.IGNORECASE)
+                supplier_check_info = ""
+                
+                if inn_match:
+                    inn = inn_match.group(1)
+                    logger.info(f"[bot] Найден ИНН в ответе GPT: {inn}")
+                    
+                    try:
+                        # Проверяем поставщика через DaMIA API
+                        check_result = await check_supplier(inn)
+                        supplier_check_info = f"\n🔍 **Проверка надежности:** {format_supplier_check_result(check_result)}"
+                        logger.info(f"[bot] Проверка поставщика {inn} завершена: {check_result.get('risk', 'Неизвестно')}")
+                    except Exception as check_error:
+                        logger.error(f"[bot] Ошибка при проверке поставщика {inn}: {check_error}")
+                        supplier_check_info = "\n🔍 **Проверка надежности:** ❌ Ошибка проверки"
+                
+                results.append(f"<b>Сайт:</b> {url} (релевантность: {relevance:.1f}%)\n{answer.strip()}{supplier_check_info}")
             except Exception as e:
                 logger.error(f"[bot] Ошибка OpenAI: {e}")
                 results.append(f"<b>Сайт:</b> {url} (релевантность: {relevance:.1f}%)\n[Ошибка при обращении к GPT]")
@@ -1319,13 +1391,15 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             print("🤖 TenderBot запущен и готов к работе!")
             print("📝 Логи сохраняются в файл:", LOG_FILE)
             
-            # Запуск с обработкой ошибок
+            # Запуск с оптимизированными настройками для уменьшения нагрузки
             self.app.run_polling(
-                timeout=60,
+                timeout=120,  # Увеличиваем интервал до 2 минут
                 read_timeout=60,
                 write_timeout=60,
                 connect_timeout=30,
-                pool_timeout=30
+                pool_timeout=30,
+                drop_pending_updates=True,  # Игнорируем старые обновления при запуске
+                allowed_updates=['message', 'callback_query']  # Только нужные типы обновлений
             )
             
         except Exception as e:

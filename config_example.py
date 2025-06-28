@@ -9,6 +9,11 @@ TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN', 'вставь_сюда_свой_т�
 
 # DaMIA API
 DAMIA_API_KEY = os.getenv('DAMIA_API_KEY', 'вставь_сюда_свой_API_ключ')
+DAMIA_BASE_URL = os.getenv('DAMIA_BASE_URL', 'https://api.damia.ru')
+
+# DaMIA API для проверки поставщиков
+DAMIA_SUPPLIER_API_KEY = os.getenv('DAMIA_SUPPLIER_API_KEY', 'вставь_сюда_ключ_для_проверки_поставщиков')
+DAMIA_SUPPLIER_BASE_URL = os.getenv('DAMIA_SUPPLIER_BASE_URL', 'https://api.damia.ru/supplier')
 
 # OpenAI API
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', 'вставь_сюда_свой_OpenAI_ключ')

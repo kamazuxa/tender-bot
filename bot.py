@@ -196,20 +196,62 @@ def format_price(price_raw):
     return str(price_raw)
 
 def format_date(date_str):
-    """Преобразует дату из формата YYYY-MM-DD в DD.MM.YYYY"""
+    """Преобразует дату из формата YYYY-MM-DD в "Дата месяц год" на русском языке"""
+    if not date_str or date_str == 'Не указана':
+        return 'Не указана'
+    
     try:
+        # Словарь месяцев на русском языке
+        months = {
+            '01': 'января', '02': 'февраля', '03': 'марта', '04': 'апреля',
+            '05': 'мая', '06': 'июня', '07': 'июля', '08': 'августа',
+            '09': 'сентября', '10': 'октября', '11': 'ноября', '12': 'декабря'
+        }
+        
+        # Разбираем дату
         parts = date_str.split('-')
         if len(parts) == 3:
-            return f"{parts[2]}.{parts[1]}.{parts[0]}"
+            year = parts[0]
+            month = parts[1]
+            day = parts[2]
+            
+            # Убираем ведущий ноль из дня
+            day = str(int(day))
+            
+            # Получаем название месяца
+            month_name = months.get(month, month)
+            
+            return f"{day} {month_name} {year}"
+        
         return date_str
     except Exception:
         return date_str
 
 def format_phone(phone_raw):
-    """Форматирует телефон в вид +74959941031"""
+    """Форматирует телефон в кликабельный вид для Telegram +7XXXXXXXXXX"""
+    if not phone_raw or phone_raw == 'Не указан':
+        return 'Не указан'
+    
+    # Убираем все нецифровые символы
     digits = re.sub(r'\D', '', str(phone_raw))
+    
+    # Если номер начинается с 7 и имеет 11 цифр
     if digits.startswith('7') and len(digits) == 11:
-        return f'+{digits}'
+        return f"+{digits}"
+    
+    # Если номер начинается с 8 и имеет 11 цифр (старый формат)
+    elif digits.startswith('8') and len(digits) == 11:
+        return f"+7{digits[1:]}"
+    
+    # Если номер имеет 10 цифр (без кода страны)
+    elif len(digits) == 10:
+        return f"+7{digits}"
+    
+    # Если номер имеет 7 цифр (городской)
+    elif len(digits) == 7:
+        return f"+7495{digits}"
+    
+    # Если ничего не подходит, возвращаем как есть
     return phone_raw
 
 class TenderBot:
@@ -361,6 +403,18 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 await update.message.reply_text("❌ Неизвестная команда. Используйте /help для списка команд.")
             return
         
+        # Проверяем, является ли сообщение номером тендера
+        tender_number = extract_tender_number(message_text)
+        if tender_number:
+            # Если это номер тендера, сбрасываем статус и начинаем заново
+            logger.info(f"[bot] Обнаружен номер тендера: {tender_number}, сбрасываю статус сессии")
+            self.user_sessions[user_id] = {
+                'status': 'waiting_for_tender',
+                'tender_data': None,
+                'files': None,
+                'search_queries': None
+            }
+        
         # Проверяем статус пользователя
         session = self.user_sessions[user_id]
         
@@ -370,7 +424,6 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             
             try:
                 # Извлекаем номер тендера
-                tender_number = extract_tender_number(message_text)
                 if not tender_number:
                     await update.message.reply_text("❌ Не удалось извлечь номер тендера. Пожалуйста, отправьте корректный номер.")
                     return
@@ -499,21 +552,19 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             
             # Преобразуем словарь в строку для отображения
             formatted_info = f"""
-📋 **Информация о тендере**
-
-📊 **Статус:** {formatted_data.get('status', 'Не указан')}
-📋 **Федеральный закон:** {formatted_data.get('federal_law', 'Не указан')}-ФЗ
-🏢 **Заказчик:** {formatted_data.get('customer', 'Не указан')}
-📝 **ИНН:** {formatted_data.get('customer_inn', 'Не указан')}
-📍 **Адрес:** {formatted_data.get('customer_address', 'Не указан')}
-📄 **Предмет поставки:** {formatted_data.get('subject', 'Не указан')}
-💰 **Цена:** {formatted_data.get('price', 'Не указана')}
-📅 **Дата публикации:** {formatted_data.get('publication_date', 'Не указана')}
-⏰ **Срок подачи до:** {formatted_data.get('submission_deadline', 'Не указана')}
-📍 **Место поставки:** {formatted_data.get('delivery_place', 'Не указано')}
-🏛️ **ЭТП:** {formatted_data.get('etp_name', 'Не указана')}
-📞 **Контакты:** {formatted_data.get('contact_person', 'Не указано')} | {formatted_data.get('contact_phone', 'Не указан')}
-📧 **Email:** {formatted_data.get('contact_email', 'Не указан')}
+📊 Статус: {formatted_data.get('status', 'Не указан')}
+📋 Федеральный закон: {formatted_data.get('federal_law', 'Не указан')}-ФЗ
+🏢 Заказчик: {formatted_data.get('customer', 'Не указан')}
+📝 ИНН: {formatted_data.get('customer_inn', 'Не указан')}
+📍 Адрес: {formatted_data.get('customer_address', 'Не указан')}
+📄 Предмет поставки: {formatted_data.get('subject', 'Не указан')}
+💰 Цена: {formatted_data.get('price', 'Не указана')}
+📅 Дата публикации: {format_date(formatted_data.get('publication_date', 'Не указана'))}
+⏰ Срок подачи до: {format_date(formatted_data.get('submission_deadline', 'Не указана'))}
+📍 Место поставки: {formatted_data.get('delivery_place', 'Не указано')}
+🏛️ ЭТП: {formatted_data.get('etp_name', 'Не указана')}
+📞 Контакты: {formatted_data.get('contact_person', 'Не указано')} | {format_phone(formatted_data.get('contact_phone', 'Не указан'))}
+📧 Email: {formatted_data.get('contact_email', 'Не указан')}
 """
             
             # Создаем клавиатуру с кнопками
@@ -547,8 +598,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 # Отправляем первую часть с кнопками
                 try:
                     await update.message.reply_text(
-                        f"📋 **Информация о тендере** (часть 1 из {len(parts)}):\n\n{parts[0]}",
-                        parse_mode='Markdown',
+                        f"📋 Информация о тендере (часть 1 из {len(parts)}):\n\n{parts[0]}",
                         reply_markup=reply_markup
                     )
                 except Exception as e:
@@ -563,8 +613,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 for i, part in enumerate(parts[1:], 2):
                     try:
                         await update.message.reply_text(
-                            f"📋 **Продолжение информации** (часть {i} из {len(parts)}):\n\n{part}",
-                            parse_mode='Markdown'
+                            f"📋 Продолжение информации (часть {i} из {len(parts)}):\n\n{part}"
                         )
                     except Exception as e:
                         logger.error(f"[bot] Ошибка при отправке части {i}: {e}")
@@ -575,8 +624,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 # Отправляем основную информацию одним сообщением
                 try:
                     await update.message.reply_text(
-                        f"📋 **Информация о тендере**\n\n{formatted_info}",
-                        parse_mode='Markdown',
+                        f"📋 Информация о тендере\n\n{formatted_info}",
                         reply_markup=reply_markup
                     )
                 except Exception as e:
@@ -1243,19 +1291,46 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
     
     def run(self):
         try:
-            # Настройка с таймаутами для предотвращения зависаний
-            self.app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
+            # Настройка с увеличенными таймаутами
+            builder = ApplicationBuilder().token(TELEGRAM_TOKEN)
             
-            # Настройка таймаутов для HTTP запросов
-            self.app.bot.request.timeout = 30.0  # 30 секунд таймаут для запросов
+            # Увеличиваем таймауты для предотвращения зависаний
+            # Примечание: request_timeout, connect_timeout, read_timeout не поддерживаются в ApplicationBuilder
+            # Вместо этого используем настройки в run_polling
+            
+            # Пробуем настроить прокси если есть проблемы с подключением
+            try:
+                # Проверяем, есть ли переменные окружения для прокси
+                proxy_url = os.environ.get('HTTP_PROXY') or os.environ.get('HTTPS_PROXY')
+                if proxy_url:
+                    logger.info(f"[bot] Используем прокси: {proxy_url}")
+                    builder.proxy_url(proxy_url)
+            except Exception as proxy_error:
+                logger.warning(f"[bot] Не удалось настроить прокси: {proxy_error}")
+            
+            self.app = builder.build()
+            
+            # Дополнительные настройки для HTTP клиента
+            if hasattr(self.app.bot, 'request'):
+                self.app.bot.request.timeout = 60.0
             
             self.setup_handlers()
             logger.info("🚀 TenderBot запущен")
             print("🤖 TenderBot запущен и готов к работе!")
             print("📝 Логи сохраняются в файл:", LOG_FILE)
-            self.app.run_polling()
+            
+            # Запуск с обработкой ошибок
+            self.app.run_polling(
+                timeout=60,
+                read_timeout=60,
+                write_timeout=60,
+                connect_timeout=30,
+                pool_timeout=30
+            )
+            
         except Exception as e:
-            logger.error(f"❌ Ошибка запуска бота {e}")
+            logger.error(f"❌ Ошибка запуска бота: {e}")
+            print(f"❌ Неожиданная ошибка: {e}")
             raise
 
     async def _generate_supplier_queries(self, formatted_info):

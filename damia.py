@@ -45,8 +45,13 @@ class DamiaClient:
         params = {"regn": reg_number, "actual": actual, "key": self.api_key}
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(url, params=params)
+            logger.info(f"[damia] zakupka для {reg_number}: статус {resp.status_code}")
             if resp.status_code == 200 and resp.text.strip():
-                return resp.json()
+                data = resp.json()
+                logger.info(f"[damia] zakupka ответ: {data}")
+                return data
+            else:
+                logger.info(f"[damia] zakupka пустой ответ или ошибка: {resp.text[:200]}")
         return None
     
     @retry_on_error()
@@ -55,8 +60,13 @@ class DamiaClient:
         params = {"regn": reg_number, "key": self.api_key}
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(url, params=params)
+            logger.info(f"[damia] contract для {reg_number}: статус {resp.status_code}")
             if resp.status_code == 200 and resp.text.strip():
-                return resp.json()
+                data = resp.json()
+                logger.info(f"[damia] contract ответ: {data}")
+                return data
+            else:
+                logger.info(f"[damia] contract пустой ответ или ошибка: {resp.text[:200]}")
         return None
     
     @retry_on_error()
@@ -92,6 +102,7 @@ class DamiaClient:
                         try:
                             data = resp.json()
                             logger.info(f"[damia] Получены данные поиска: {len(str(data))} символов")
+                            logger.info(f"[damia] Содержимое ответа: {data}")
                             return data
                         except json.JSONDecodeError as e:
                             logger.error(f"[damia] Ошибка парсинга JSON: {e}")
@@ -241,17 +252,40 @@ class DamiaClient:
     def _is_empty_response(self, data: Dict) -> bool:
         """Проверяет, является ли ответ пустым или неинформативным"""
         if not data:
+            logger.info(f"[damia] Ответ пустой (None или пустой dict)")
             return True
         
-        # Проверяем основные поля, которые должны быть в ответе
-        required_fields = ['РазмОрг', 'Продукт', 'НачЦена', 'Заказчик', 'Статус']
+        # Логируем структуру ответа для отладки
+        logger.info(f"[damia] Структура ответа: {list(data.keys()) if isinstance(data, dict) else type(data)}")
         
         # Если это поисковый результат, проверяем другие поля
         if 'ФЗ' in data:
             # Это результат поиска, проверяем наличие данных
-            return len(data) <= 1  # Только поле ФЗ без данных
+            # Считаем ответ непустым, если есть хотя бы одно из основных полей
+            main_fields = ['РазмОрг', 'Продукт', 'НачЦена', 'Заказчик', 'Статус', 'Контакты', 'Документы']
+            has_main_data = any(field in data for field in main_fields)
+            
+            logger.info(f"[damia] Поисковый результат с ФЗ: {data}, пустой: {not has_main_data}")
+            return not has_main_data
         
-        return not any(field in data for field in required_fields)
+        # Проверяем основные поля, которые должны быть в ответе
+        required_fields = ['РазмОрг', 'Продукт', 'НачЦена', 'Заказчик', 'Статус']
+        has_required = any(field in data for field in required_fields)
+        
+        logger.info(f"[damia] Проверка обязательных полей: {has_required}, найденные поля: {[k for k in data.keys() if k in required_fields]}")
+        
+        # Если есть хотя бы одно обязательное поле, считаем ответ непустым
+        if has_required:
+            return False
+        
+        # Если нет обязательных полей, но есть другие данные, тоже считаем непустым
+        # (возможно, API изменил структуру ответа)
+        if len(data) > 0:
+            logger.info(f"[damia] Ответ содержит данные, но не стандартные поля: {data}")
+            return False
+        
+        logger.info(f"[damia] Ответ действительно пустой")
+        return True
     
     def extract_tender_number(self, text: str) -> Optional[str]:
         """

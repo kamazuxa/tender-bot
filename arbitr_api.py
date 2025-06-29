@@ -148,9 +148,22 @@ class DamiaArbitrAPI:
         
         logger.info(f"[arbitr] Результат поиска дел для {inn}: {result}")
         
+        # Проверяем, что result не пустой список
         if result and isinstance(result, dict):
+            result_data = result.get('result', {})
+            
+            # Если result_data - пустой список, значит дел не найдено
+            if isinstance(result_data, list) and len(result_data) == 0:
+                logger.info(f"[arbitr] Арбитражные дела для {inn} не найдены (пустой список)")
+                return {
+                    "inn": inn,
+                    "cases": [],
+                    "total_count": 0,
+                    "has_next_page": False,
+                    "status": "not_found"
+                }
+            
             if format_type == 1:  # группированные данные
-                result_data = result.get('result', {})
                 cases = []
                 total_count = 0
                 years_summary = {}
@@ -197,7 +210,6 @@ class DamiaArbitrAPI:
                     "status": "found"
                 }
             else:  # негруппированные данные (format=2)
-                result_data = result.get('result', {})
                 cases = []
                 total_count = result.get('count', 0)
                 has_next_page = result.get('next_page', False)

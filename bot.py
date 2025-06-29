@@ -2053,28 +2053,33 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 # Всегда используем форматированный вывод
                 summary = arbitr_api.format_arbitrage_summary(cases_data)
                 result += summary
+            elif cases_data.get('status') == 'not_found':
+                result += "✅ **Арбитражные дела не найдены**\n\n"
+                result += "💡 *Это означает, что компания не участвовала в арбитражных спорах, что является положительным фактором.*"
             elif cases_data.get('status') == 'error':
                 error_msg = cases_data.get('error', 'Неизвестная ошибка')
-                result += f"❌ **Ошибка при получении данных: {error_msg}**\n"
+                result += f"❌ **Ошибка при получении данных:** {error_msg}"
             else:
-                result += "❌ **Данные арбитражных дел недоступны**\n"
+                result += "❌ **Не удалось получить данные об арбитражных делах**"
             
             return result
-        
         except Exception as e:
             logger.error(f"[bot] Ошибка при проверке арбитражей: {e}")
-            return f"❌ Ошибка при проверке арбитражей: {str(e)}"
+            return f"❌ **Ошибка при проверке арбитражей:** {str(e)}"
     
     async def _check_scoring(self, inn: str) -> str:
         """Проверка скоринга"""
         try:
             # Получаем скоринг по всем моделям и фин. коэффициенты
             scoring_data = await scoring_api.get_comprehensive_scoring(inn)
-            result = f"📊 Скоринг для ИНН {inn}\n\n"
+            result = f"📊 **Скоринг для ИНН {inn}**\n\n"
+            
             if scoring_data.get('status') == 'completed':
                 results = scoring_data.get('results', {})
+                
                 # Модели скоринга
-                result += "🎯 Результаты скоринга:\n"
+                result += "🎯 **Результаты скоринга:**\n"
+                scoring_models = []
                 for model_name, model_result in results.items():
                     if model_name == 'financial_coefficients':
                         continue
@@ -2084,62 +2089,89 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                         probability = model_result.get('probability', 0)
                         safe_model_name = escape_markdown(str(model_name))
                         safe_risk_level = escape_markdown(str(risk_level))
+                        
+                        # Определяем эмодзи для уровня риска
+                        risk_emoji = "🟢" if risk_level == "low" else "🟡" if risk_level == "medium" else "🔴" if risk_level == "high" else "⚪"
+                        
                         if isinstance(probability, (int, float)):
-                            result += f"• {safe_model_name}: {score} ({safe_risk_level}, {probability:.1f}%)\n"
+                            result += f"• {risk_emoji} **{safe_model_name}:** {score} ({safe_risk_level}, {probability:.1f}%)\n"
                         else:
-                            result += f"• {safe_model_name}: {score} ({safe_risk_level}, {probability})\n"
+                            result += f"• {risk_emoji} **{safe_model_name}:** {score} ({safe_risk_level}, {probability})\n"
                     else:
                         safe_model_name = escape_markdown(str(model_name))
-                        result += f"• {safe_model_name}: Ошибка\n"
+                        result += f"• ⚪ **{safe_model_name}:** Ошибка\n"
+                
                 # Финансовые коэффициенты
                 fin_data = results.get('financial_coefficients', {})
                 if fin_data.get('status') == 'found':
                     result += "\n💰 **Ключевые финансовые показатели:**\n"
                     coefs = fin_data.get('coefficients', {})
+                    
+                    # Определяем ключевые коэффициенты с их названиями и типами
                     key_coefs = {
-                        'КоэфТекЛикв': 'Текущая ликвидность',
-                        'РентАктивов': 'Рентабельность активов',
-                        'КоэфФинАвт': 'Финансовая автономия',
-                        'РентПродаж': 'Рентабельность продаж'
+                        'КоэфТекЛикв': {'name': 'Текущая ликвидность', 'type': 'ratio', 'unit': ''},
+                        'РентАктивов': {'name': 'Рентабельность активов', 'type': 'percent', 'unit': '%'},
+                        'КоэфФинАвт': {'name': 'Финансовая автономия', 'type': 'ratio', 'unit': ''},
+                        'РентПродаж': {'name': 'Рентабельность продаж', 'type': 'percent', 'unit': '%'}
                     }
-                    for coef_code, coef_name in key_coefs.items():
+                    
+                    for coef_code, coef_info in key_coefs.items():
                         value = coefs.get(coef_code)
                         if value is not None:
-                            safe_coef_name = escape_markdown(str(coef_name))
+                            safe_coef_name = escape_markdown(str(coef_info['name']))
+                            
                             if isinstance(value, dict):
                                 years = sorted(value.keys(), reverse=True)
                                 if years:
                                     latest_year = years[0]
                                     year_data = value[latest_year]
+                                    
                                     if isinstance(year_data, dict) and 'Знач' in year_data:
                                         display_value = year_data['Знач']
-                                        norm_value = year_data.get('Норма', None)
-                                        norm_low = year_data.get('НормаНижн', None)
-                                        norm_high = year_data.get('НормаВерхн', None)
+                                        norm_value = year_data.get('Норма')
+                                        norm_low = year_data.get('НормаНижн')
+                                        norm_high = year_data.get('НормаВерхн')
                                         norm_comparison = year_data.get('НормаСравн', 'нет данных')
-                                        # Определяем, нужно ли добавлять %
-                                        percent_coefs = ['РентАктивов', 'РентПродаж']
-                                        if coef_code in percent_coefs:
-                                            display_value_str = f"{display_value:.3f}%" if isinstance(display_value, (int, float)) else str(display_value)
-                                            norm_value_str = f"{norm_value:.3f}%" if isinstance(norm_value, (int, float)) else (norm_value if norm_value is not None else 'нет данных')
-                                            norm_low_str = f"{norm_low:.3f}%" if isinstance(norm_low, (int, float)) else (norm_low if norm_low is not None else 'нет данных')
-                                            norm_high_str = f"{norm_high:.3f}%" if isinstance(norm_high, (int, float)) else (norm_high if norm_high is not None else 'нет данных')
+                                        
+                                        # Форматируем значение
+                                        if isinstance(display_value, (int, float)):
+                                            if coef_info['type'] == 'percent':
+                                                display_value_str = f"{display_value:.3f}{coef_info['unit']}"
+                                            else:
+                                                display_value_str = f"{display_value:.3f}{coef_info['unit']}"
                                         else:
-                                            display_value_str = f"{display_value:.3f}" if isinstance(display_value, (int, float)) else str(display_value)
-                                            norm_value_str = f"{norm_value:.3f}" if isinstance(norm_value, (int, float)) else (norm_value if norm_value is not None else 'нет данных')
-                                            norm_low_str = f"{norm_low:.3f}" if isinstance(norm_low, (int, float)) else (norm_low if norm_low is not None else 'нет данных')
-                                            norm_high_str = f"{norm_high:.3f}" if isinstance(norm_high, (int, float)) else (norm_high if norm_high is not None else 'нет данных')
-                                        result += f"• {safe_coef_name} ({latest_year}): {display_value_str} (норма: {norm_value_str}, {norm_comparison})\n"
+                                            display_value_str = f"{display_value}{coef_info['unit']}"
+                                        
+                                        # Форматируем нормы
+                                        if norm_value is not None and isinstance(norm_value, (int, float)):
+                                            norm_value_str = f"{norm_value:.3f}{coef_info['unit']}"
+                                        else:
+                                            norm_value_str = "нет данных"
+                                            
+                                        if norm_low is not None and norm_high is not None and isinstance(norm_low, (int, float)) and isinstance(norm_high, (int, float)):
+                                            norm_range_str = f"{norm_low:.3f}-{norm_high:.3f}{coef_info['unit']}"
+                                        else:
+                                            norm_range_str = "нет данных"
+                                        
+                                        # Определяем эмодзи для сравнения с нормой
+                                        comparison_emoji = "✅" if "выше нормы" in norm_comparison.lower() else "⚠️" if "ниже нормы" in norm_comparison.lower() else "🟢" if "в пределах нормы" in norm_comparison.lower() else "⚪"
+                                        
+                                        result += f"• {comparison_emoji} **{safe_coef_name} ({latest_year}):** {display_value_str}\n"
+                                        result += f"  └ Норма: {norm_value_str} (диапазон: {norm_range_str})\n"
+                                        result += f"  └ Оценка: {norm_comparison}\n"
                             elif isinstance(value, (int, float)):
-                                result += f"• {safe_coef_name}: {value:.3f}\n"
+                                result += f"• ⚪ **{safe_coef_name}:** {value:.3f}{coef_info['unit']}\n"
                             else:
-                                result += f"• {safe_coef_name}: {value}\n"
+                                result += f"• ⚪ **{safe_coef_name}:** {value}\n"
+                else:
+                    result += "\n❌ **Финансовые показатели недоступны**\n"
             else:
-                result += "❌ Не удалось получить скоринг или финансовые показатели."
+                result += "❌ **Не удалось получить скоринг или финансовые показатели.**\n"
+            
             return result
         except Exception as e:
             logger.error(f"[bot] Ошибка при проверке скоринга: {e}")
-            return f"❌ Ошибка при проверке скоринга: {str(e)}"
+            return f"❌ **Ошибка при проверке скоринга:** {str(e)}"
     
     async def _check_fssp(self, inn: str) -> str:
         """Проверка ФССП"""

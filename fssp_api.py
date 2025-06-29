@@ -409,6 +409,14 @@ class FSSPAPIClient:
                     'active_proceedings': active_count,
                     'total_debt': total_debt
                 }
+                
+                # Если нет производств, пытаемся получить данные о компании из других источников
+                if len(proceedings) == 0:
+                    logger.info(f"[FSSP] Нет производств для {inn}, пытаемся получить данные о компании")
+                    # Здесь можно добавить запрос к ФНС API для получения данных о компании
+                    # Пока оставляем как есть, но добавляем флаг
+                    result['no_proceedings'] = True
+                    result['company_info']['note'] = 'Данные о компании не доступны в ФССП (нет производств)'
             
             logger.info(f"[FSSP] Проверка завершена для ИНН {inn}")
             return result

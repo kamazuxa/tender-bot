@@ -319,26 +319,67 @@ class DamiaArbitrAPI:
         """Форматирует сводку по арбитражным делам с деталями по годам и решениям"""
         if not cases_data or cases_data.get('status') != 'found':
             return "Арбитражные дела не найдены"
+        
         total_count = cases_data.get('total_count', 0)
         years_summary = cases_data.get('years_summary', {})
         roles_summary = cases_data.get('roles_summary', {})
-        summary = f"📋 Найдено арбитражных дел: {total_count}\n\n"
+        
+        # Словарь для расшифровки ролей
+        role_names = {
+            'Истец': '👨‍⚖️ Истец',
+            'Ответчик': '🛡️ Ответчик', 
+            'Третье лицо': '👥 Третье лицо',
+            'Иное лицо': '📋 Иное лицо'
+        }
+        
+        # Словарь для расшифровки типов решений
+        decision_types = {
+            'РешенияПерв': '🏛️ Первая инстанция',
+            'РешенияАпп': '⚖️ Апелляция',
+            'РешенияКасс': '🔍 Кассация',
+            'РешенияНадз': '👑 Надзор'
+        }
+        
+        summary = f"⚖️ **Найдено арбитражных дел: {total_count}**\n\n"
+        
         # По ролям
         if roles_summary:
-            summary += "📊 По ролям:\n"
+            summary += "📊 **По ролям:**\n"
             for role, count in roles_summary.items():
-                summary += f"• {role}: {count} дел\n"
-        # По годам
+                role_display = role_names.get(role, role)
+                summary += f"• {role_display}: {count} дел\n"
+        
+        # По годам с деталями
         if years_summary:
-            summary += "\n📆 По годам:\n"
+            summary += "\n📆 **Детализация по годам:**\n"
             for year in sorted(years_summary.keys(), reverse=True):
                 for item in years_summary[year]:
                     role = item['role']
                     total = item['total']
                     amount = item['amount']
-                    summary += f"{year} ({role}): {total} дел на {amount:,} руб.\n"
-                    for d in item['decisions']:
-                        summary += f"  - {d['decision_name']} ({d['decision_type']}): {d['count']} дел на {d['amount']:,} руб.\n"
+                    role_display = role_names.get(role, role)
+                    
+                    summary += f"\n**{year} год - {role_display}:**\n"
+                    summary += f"• Всего дел: {total}\n"
+                    if amount > 0:
+                        summary += f"• Общая сумма: {amount:,} руб.\n"
+                    
+                    # Детализация по решениям
+                    decisions = item['decisions']
+                    if decisions:
+                        summary += "• **Решения:**\n"
+                        for d in decisions:
+                            decision_type = decision_types.get(d['decision_type'], d['decision_type'])
+                            decision_name = d['decision_name']
+                            count = d['count']
+                            decision_amount = d['amount']
+                            
+                            summary += f"  - {decision_type}: {decision_name}\n"
+                            summary += f"    Количество: {count} дел"
+                            if decision_amount > 0:
+                                summary += f", Сумма: {decision_amount:,} руб."
+                            summary += "\n"
+        
         return summary
 
 # Создаем глобальный экземпляр

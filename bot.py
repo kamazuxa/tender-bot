@@ -2166,16 +2166,32 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                                             # Определяем единицы измерения и форматируем
                                             if coef_code == 'КоэфТекЛикв':
                                                 # Коэффициент текущей ликвидности - безразмерная величина
-                                                result += f"• {safe_coef_name} ({latest_year}): {display_value:.3f} (норма: {norm_value:.3f}, {norm_comparison})\n"
+                                                result += f"• {safe_coef_name} ({latest_year}): {display_value:.3f} (норма: "
+                                                if isinstance(norm_value, (int, float)):
+                                                    result += f"{norm_value:.3f}, {norm_comparison})\n"
+                                                else:
+                                                    result += f"{norm_value}, {norm_comparison})\n"
                                             elif coef_code == 'РентАктивов':
                                                 # Рентабельность активов - в процентах
-                                                result += f"• {safe_coef_name} ({latest_year}): {display_value:.3f}% (норма: {norm_value:.3f}%, {norm_comparison})\n"
+                                                result += f"• {safe_coef_name} ({latest_year}): {display_value:.3f}% (норма: "
+                                                if isinstance(norm_value, (int, float)):
+                                                    result += f"{norm_value:.3f}%, {norm_comparison})\n"
+                                                else:
+                                                    result += f"{norm_value}%, {norm_comparison})\n"
                                             elif coef_code == 'КоэфФинАвт':
                                                 # Коэффициент финансовой автономии - безразмерная величина
-                                                result += f"• {safe_coef_name} ({latest_year}): {display_value:.3f} (норма: {norm_value:.3f}, {norm_comparison})\n"
+                                                result += f"• {safe_coef_name} ({latest_year}): {display_value:.3f} (норма: "
+                                                if isinstance(norm_value, (int, float)):
+                                                    result += f"{norm_value:.3f}, {norm_comparison})\n"
+                                                else:
+                                                    result += f"{norm_value}, {norm_comparison})\n"
                                             elif coef_code == 'РентПродаж':
                                                 # Рентабельность продаж - в процентах
-                                                result += f"• {safe_coef_name} ({latest_year}): {display_value:.3f}% (норма: {norm_value:.3f}%, {norm_comparison})\n"
+                                                result += f"• {safe_coef_name} ({latest_year}): {display_value:.3f}% (норма: "
+                                                if isinstance(norm_value, (int, float)):
+                                                    result += f"{norm_value:.3f}%, {norm_comparison})\n"
+                                                else:
+                                                    result += f"{norm_value}%, {norm_comparison})\n"
                                             else:
                                                 result += f"• {safe_coef_name} ({latest_year}): {display_value:.3f}\n"
                                         else:
@@ -2227,7 +2243,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     for k in ['name', 'inn', 'ogrn', 'address']
                 ))
             ):
-                return "👮 Проверка ФССП для ИНН {inn}\n\nКомпания не найдена в базе ФССП или у нее нет исполнительных производств."
+                return f"👮 **Проверка ФССП для ИНН {inn}**\n\n✅ **Компания не найдена в базе ФССП или у нее нет исполнительных производств.**\n\n💡 *Это означает, что у компании нет задолженностей по исполнительным производствам, что является положительным фактором.*"
             
             result = f"👮 **Проверка ФССП для ИНН {inn}**\n\n"
             
@@ -2243,10 +2259,15 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     safe_ogrn = escape_markdown(str(company_info.get('ogrn', 'Не указано')))
                     safe_address = escape_markdown(str(company_info.get('address', 'Не указано')))
                     
-                    result += f"🏢 **Компания:** {safe_name}\n"
-                    result += f"**ИНН:** {safe_inn}\n"
-                    result += f"**ОГРН:** {safe_ogrn}\n"
-                    result += f"**Адрес:** {safe_address}\n\n"
+                    # Проверяем, есть ли примечание о недоступности данных
+                    note = company_info.get('note')
+                    if note:
+                        result += f"ℹ️ **{note}**\n\n"
+                    else:
+                        result += f"🏢 **Компания:** {safe_name}\n"
+                        result += f"**ИНН:** {safe_inn}\n"
+                        result += f"**ОГРН:** {safe_ogrn}\n"
+                        result += f"**Адрес:** {safe_address}\n\n"
                 
                 # Сводка по производствам
                 total_proceedings = summary.get('total_proceedings', 0)

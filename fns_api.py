@@ -273,7 +273,21 @@ class FNSAPI:
             info += f"**Дата прекращения:** {company.get('ДатаПрекр')}\n"
         
         info += f"**Адрес:** {company.get('АдресПолн', 'Не указано')}\n"
-        info += f"**Основной вид деятельности:** {company.get('ОснВидДеят', 'Не указано')}\n"
+        
+        # Форматируем основной вид деятельности
+        main_activity = company.get('ОснВидДеят', 'Не указано')
+        if isinstance(main_activity, dict):
+            # Если это словарь с кодом и текстом
+            code = main_activity.get('Код', '')
+            text = main_activity.get('Текст', '')
+            date = main_activity.get('Дата', '')
+            if code and text:
+                info += f"**Основной вид деятельности:** {code} - {text}\n"
+            else:
+                info += f"**Основной вид деятельности:** {text or 'Не указано'}\n"
+        else:
+            # Если это просто строка
+            info += f"**Основной вид деятельности:** {main_activity}\n"
         
         # Контактная информация
         if company.get('НомТел'):

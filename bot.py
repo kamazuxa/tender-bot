@@ -420,7 +420,17 @@ class TenderBot:
                 await update.message.reply_text("❌ Неизвестная команда. Используйте /help для списка команд.")
             return
         
-        # Проверяем, является ли сообщение номером тендера
+        # Проверяем статус пользователя
+        session = self.user_sessions[user_id]
+        
+        # Проверяем, ожидается ли ввод ИНН для проверки контрагентов
+        if session['status'] in ['waiting_for_inn_fns', 'waiting_for_inn_arbitr', 'waiting_for_inn_scoring', 'waiting_for_inn_fssp']:
+            # Определяем тип проверки по статусу
+            check_type = session['status'].replace('waiting_for_inn_', '')
+            await self._handle_inn_input(update, context, message_text, check_type)
+            return
+        
+        # Проверяем, является ли сообщение номером тендера (только если не ожидается ИНН)
         tender_number = extract_tender_number(message_text)
         if tender_number:
             # Если это номер тендера, сбрасываем статус и начинаем заново
@@ -431,9 +441,6 @@ class TenderBot:
                 'files': None,
                 'search_queries': None
             }
-        
-        # Проверяем статус пользователя
-        session = self.user_sessions[user_id]
         
         if session['status'] == 'waiting_for_tender':
             # Ожидаем номер тендера

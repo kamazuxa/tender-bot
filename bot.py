@@ -282,49 +282,51 @@ class TenderBot:
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /start"""
-        user = update.effective_user
+        user_id = update.effective_user.id
+        user_name = update.effective_user.first_name or "Пользователь"
+        
+        # Инициализируем сессию пользователя
+        if user_id not in self.user_sessions:
+            self.user_sessions[user_id] = {
+                'status': 'waiting_for_tender',
+                'tender_data': None,
+                'files': None,
+                'search_queries': None
+            }
+        
         welcome_message = f"""
-🤖 **Добро пожаловать в TenderBot!**
+🎉 **Добро пожаловать в TenderBot, {user_name}!**
 
-Привет, {user.first_name}! Я ваш умный помощник для анализа госзакупок и проверки контрагентов.
+🤖 **Я помогу вам анализировать государственные закупки и проверять контрагентов.**
 
-## 🎯 **Что я умею:**
+**🔍 Что я умею:**
+• 📋 Анализ тендеров и закупок
+• 🏢 Проверка контрагентов (ФНС, ФССП, арбитраж, скоринг)
+• 📊 Детальный анализ документов
+• 🔍 Поиск поставщиков
+• 📈 История тендеров
 
-### 📋 **Госзакупки**
-• Анализ тендеров через DaMIA API (44-ФЗ и 223-ФЗ)
-• Скачивание и ИИ-анализ документов
-• Структурированные отчеты с рекомендациями
-• Поиск поставщиков через Yandex
-
-### 🔍 **Проверка контрагентов**
-• Проверка по базам ФНС (ЕГРЮЛ/ЕГРИП)
-• Арбитражные дела
-• Скоринг и оценка рисков
-• Исполнительные производства (ФССП)
-
-### 📊 **Поиск поставщиков**
-• Автоматический поиск через SerpAPI
-• Ранжирование результатов с помощью GPT
-• Контакты и коммерческие предложения
-
-### 👤 **Личный кабинет**
-• История проверок
-• Избранные тендеры
-• Настройки уведомлений
-
-**Выберите нужную функцию:**
+**🚀 Начните работу:**
+Выберите нужную функцию из меню ниже 👇
         """
         
+        # Создаем клавиатуру с основными функциями
         keyboard = [
-            [InlineKeyboardButton("📋 Госзакупки", callback_data="tenders")],
-            [InlineKeyboardButton("🔍 Проверка контрагента", callback_data="supplier_check")],
-            [InlineKeyboardButton("🔎 Поиск поставщиков", callback_data="supplier_search")],
+            [InlineKeyboardButton("📋 Анализ тендеров", callback_data="tenders")],
+            [InlineKeyboardButton("🏢 Проверка контрагентов", callback_data="supplier_check")],
+            [InlineKeyboardButton("🔍 Поиск поставщиков", callback_data="supplier_search")],
             [InlineKeyboardButton("👤 Личный кабинет", callback_data="profile")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(welcome_message, parse_mode='Markdown', reply_markup=reply_markup)
-        logger.info(f"[bot] Пользователь {user.id} запустил бота")
+        # Отправляем приветственное сообщение
+        await update.message.reply_text(
+            welcome_message,
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
+        
+        logger.info(f"[bot] Пользователь {user_id} запустил бота")
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /help"""
@@ -1721,37 +1723,30 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
     async def _show_supplier_check_menu(self, query, context):
         """Показывает меню проверки контрагентов"""
         message = """
-🔍 **Проверка контрагента**
+🏢 **Проверка контрагентов**
 
 Выберите тип проверки:
 
-**1. Проверка по базам ФНС**
-• ЕГРЮЛ/ЕГРИП данные
-• Проверка контрагента
-• Отслеживание изменений
+**📊 Доступные проверки:**
+• 🏛️ **ФНС** - ЕГРЮЛ/ЕГРИП, признаки недобросовестности
+• ⚖️ **Арбитраж** - Арбитражные дела и споры
+• 📈 **Скоринг** - Оценка рисков и финансовое состояние
+• 👮 **ФССП** - Исполнительные производства
 
-**2. Арбитражи**
-• Арбитражные дела
-• Роли в делах
-• Отслеживание дел
+**💡 Как использовать:**
+1. Выберите тип проверки
+2. Отправьте ИНН компании (10 или 12 цифр)
+3. Получите подробный отчет
 
-**3. Скоринг проверка**
-• Оценка рисков
-• Финансовые коэффициенты
-• 5 моделей скоринга
-
-**4. Проверка ФССП**
-• Исполнительные производства
-• Задолженности
-• История производств
+**Пример ИНН:** `7704627217`
         """
         
         keyboard = [
-            [InlineKeyboardButton("🏢 Проверка по базам ФНС", callback_data="fns_check")],
-            [InlineKeyboardButton("⚖️ Арбитражи", callback_data="arbitr_check")],
-            [InlineKeyboardButton("📊 Скоринг проверка", callback_data="scoring_check")],
+            [InlineKeyboardButton("🏛️ Проверка ФНС", callback_data="fns_check")],
+            [InlineKeyboardButton("⚖️ Арбитражные дела", callback_data="arbitr_check")],
+            [InlineKeyboardButton("📈 Скоринг", callback_data="scoring_check")],
             [InlineKeyboardButton("👮 Проверка ФССП", callback_data="fssp_check")],
-            [InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]
+            [InlineKeyboardButton("🔙 Главное меню", callback_data="back_to_main")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -1836,22 +1831,23 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
     async def _handle_fns_check(self, query, context):
         """Обработчик проверки ФНС"""
         message = """
-🏢 **Проверка по базам ФНС**
+🏛️ **Проверка ФНС**
 
 Отправьте ИНН компании для проверки:
 
 **Что проверяется:**
-• Данные из ЕГРЮЛ/ЕГРИП
+• Данные ЕГРЮЛ/ЕГРИП
 • Признаки недобросовестности
 • Массовые директора/учредители
-• Ликвидация/реорганизация
-• Отслеживание изменений
+• Ликвидация и реорганизация
+• Нарушения и штрафы
 
 **Пример:** `7704627217`
         """
         
         keyboard = [
-            [InlineKeyboardButton("🔙 Назад", callback_data="back_to_supplier_check")]
+            [InlineKeyboardButton("🔙 К проверке контрагентов", callback_data="back_to_supplier_check")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -1864,27 +1860,29 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
     
     async def _handle_arbitr_check(self, query, context):
-        """Обработчик проверки арбитражей"""
+        """Обработчик проверки арбитража"""
         message = """
-⚖️ **Проверка арбитражных дел**
+⚖️ **Арбитражные дела**
 
 Отправьте ИНН компании для проверки:
 
 **Что проверяется:**
 • Арбитражные дела
 • Роли в делах (истец/ответчик)
-• Статус дел
-• Отслеживание изменений
+• Суммы исков
+• Статусы дел
+• История арбитражных споров
 
 **Пример:** `7704627217`
         """
         
         keyboard = [
-            [InlineKeyboardButton("🔙 Назад", callback_data="back_to_supplier_check")]
+            [InlineKeyboardButton("🔙 К проверке контрагентов", callback_data="back_to_supplier_check")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Устанавливаем статус ожидания ИНН для арбитражей
+        # Устанавливаем статус ожидания ИНН для арбитража
         user_id = query.from_user.id
         if user_id not in self.user_sessions:
             self.user_sessions[user_id] = {}
@@ -1895,7 +1893,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
     async def _handle_scoring_check(self, query, context):
         """Обработчик скоринга"""
         message = """
-📊 **Скоринг проверка**
+📈 **Скоринг проверка**
 
 Отправьте ИНН компании для скоринга:
 
@@ -1910,7 +1908,8 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         """
         
         keyboard = [
-            [InlineKeyboardButton("🔙 Назад", callback_data="back_to_supplier_check")]
+            [InlineKeyboardButton("🔙 К проверке контрагентов", callback_data="back_to_supplier_check")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -1939,7 +1938,8 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         """
         
         keyboard = [
-            [InlineKeyboardButton("🔙 Назад", callback_data="back_to_supplier_check")]
+            [InlineKeyboardButton("🔙 К проверке контрагентов", callback_data="back_to_supplier_check")],
+            [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -1984,7 +1984,15 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 result = await self._check_fssp(inn)
             
             if result:
-                await update.message.reply_text(result, parse_mode='Markdown')
+                # Создаем клавиатуру с кнопками навигации
+                keyboard = [
+                    [InlineKeyboardButton("🔍 Проверить другой ИНН", callback_data=f"{check_type}_check")],
+                    [InlineKeyboardButton("🏢 К проверке контрагентов", callback_data="back_to_supplier_check")],
+                    [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
+                await update.message.reply_text(result, parse_mode='Markdown', reply_markup=reply_markup)
             else:
                 await update.message.reply_text("❌ Ошибка при проверке. Попробуйте позже.")
                 
@@ -1992,7 +2000,20 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             logger.error(f"[bot] Ошибка при проверке ИНН {inn}: {e}")
             # Экранируем специальные символы для Markdown
             error_msg = str(e).replace('*', '\\*').replace('_', '\\_').replace('`', '\\`').replace('[', '\\[').replace(']', '\\]')
-            await update.message.reply_text(f"❌ Произошла ошибка при проверке: {error_msg}")
+            
+            # Создаем клавиатуру с кнопками навигации
+            keyboard = [
+                [InlineKeyboardButton("🔍 Попробовать снова", callback_data=f"{check_type}_check")],
+                [InlineKeyboardButton("🏢 К проверке контрагентов", callback_data="back_to_supplier_check")],
+                [InlineKeyboardButton("🏠 Главное меню", callback_data="back_to_main")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await update.message.reply_text(
+                f"❌ Произошла ошибка при проверке: {error_msg}",
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
         
         # Сбрасываем статус пользователя
         self.user_sessions[user_id]['status'] = 'waiting_for_tender'

@@ -603,20 +603,58 @@ async def test_supplier_checker_integration():
     """Тестирует интеграцию проверки контрагентов"""
     print("🔍 Тест интеграции проверки контрагентов...")
     try:
-        from supplier_checker import supplier_checker
+        from supplier_checker import process_fssp_data, calculate_risk_level, format_supplier_check_result
         
-        # Тест создания запросов для поиска
-        test_info = {
-            "customer": "ООО Тест",
-            "subject": "Поставка товаров",
-            "amount": 1000000
+        # Тест обработки данных ФССП
+        test_fssp_data = {
+            "status": "success",
+            "executive_proceedings": [
+                {"number": "12345", "amount": 100000, "status": "active"}
+            ],
+            "summary": {
+                "total_proceedings": 1,
+                "active_proceedings": 1,
+                "total_debt": 100000
+            }
         }
         
-        queries = await supplier_checker._generate_supplier_queries(test_info)
-        if isinstance(queries, list) and len(queries) > 0:
-            print("✅ Генерация поисковых запросов работает")
+        processed_fssp = process_fssp_data(test_fssp_data)
+        if isinstance(processed_fssp, dict) and "has_debts" in processed_fssp:
+            print("✅ Обработка данных ФССП работает")
         else:
-            print("❌ Ошибка генерации поисковых запросов")
+            print("❌ Ошибка обработки данных ФССП")
+            return False
+        
+        # Тест расчета уровня риска
+        test_fns_data = {"has_violations": False, "violations_count": 0}
+        test_arbitr_data = []
+        test_score_data = {"score": 750}
+        
+        risk_level = calculate_risk_level(
+            test_fns_data, processed_fssp, test_arbitr_data, test_score_data
+        )
+        
+        if isinstance(risk_level, str) and len(risk_level) > 0:
+            print("✅ Расчет уровня риска работает")
+        else:
+            print("❌ Ошибка расчета уровня риска")
+            return False
+        
+        # Тест форматирования результатов
+        test_check_data = {
+            "inn": "1234567890",
+            "risk": "🟡 Низкий риск",
+            "fns": test_fns_data,
+            "fssp": processed_fssp,
+            "arbitr_count": 0,
+            "score": 750
+        }
+        
+        formatted_result = format_supplier_check_result(test_check_data)
+        if isinstance(formatted_result, str) and len(formatted_result) > 0:
+            print("✅ Форматирование результатов работает")
+        else:
+            print("❌ Ошибка форматирования результатов")
             return False
         
         return True

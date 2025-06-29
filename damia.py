@@ -57,7 +57,9 @@ class DamiaClient:
                     if "Ошибка:" in response_text or "ошибка" in response_text.lower():
                         logger.error(f"[damia] API вернул ошибку: {response_text}")
                         raise DamiaAPIError(f"API error: {response_text}")
-                    raise DamiaAPIError(f"Invalid JSON response: {response_text}")
+                    # Если это не ошибка, но и не JSON, возвращаем None
+                    logger.warning(f"[damia] Неожиданный ответ: {response_text}")
+                    return None
             else:
                 logger.info(f"[damia] zakupka пустой ответ или ошибка: {resp.text[:200]}")
         return None
@@ -81,7 +83,9 @@ class DamiaClient:
                     if "Ошибка:" in response_text or "ошибка" in response_text.lower():
                         logger.error(f"[damia] API вернул ошибку: {response_text}")
                         raise DamiaAPIError(f"API error: {response_text}")
-                    raise DamiaAPIError(f"Invalid JSON response: {response_text}")
+                    # Если это не ошибка, но и не JSON, возвращаем None
+                    logger.warning(f"[damia] Неожиданный ответ: {response_text}")
+                    return None
             else:
                 logger.info(f"[damia] contract пустой ответ или ошибка: {resp.text[:200]}")
         return None

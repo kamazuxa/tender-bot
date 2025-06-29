@@ -58,6 +58,19 @@ CACHE_TTL = 3600  # 1 час
 MAX_RETRIES = 3
 RETRY_DELAY = 1  # секунды
 
+def escape_markdown(text: str) -> str:
+    """Экранирует специальные символы Markdown для Telegram"""
+    if not text:
+        return text
+    
+    # Символы, которые нужно экранировать в Markdown
+    escape_chars = ['_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!']
+    
+    for char in escape_chars:
+        text = text.replace(char, f'\\{char}')
+    
+    return text
+
 def retry_on_error(max_retries: int = MAX_RETRIES, delay: float = RETRY_DELAY):
     """Декоратор для retry-логики"""
     def decorator(func):
@@ -2116,9 +2129,14 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                         risk_level = model_result.get('risk_level', 'unknown')
                         probability = model_result.get('probability', 0)
                         
-                        result += f"• {model_name}: {score} ({risk_level}, {probability:.1f}%)\n"
+                        # Экранируем специальные символы
+                        safe_model_name = escape_markdown(str(model_name))
+                        safe_risk_level = escape_markdown(str(risk_level))
+                        
+                        result += f"• {safe_model_name}: {score} ({safe_risk_level}, {probability:.1f}%)\n"
                     else:
-                        result += f"• {model_name}: Ошибка\n"
+                        safe_model_name = escape_markdown(str(model_name))
+                        result += f"• {safe_model_name}: Ошибка\n"
                 
                 # Финансовые коэффициенты
                 fin_data = results.get('financial_coefficients', {})
@@ -2136,11 +2154,14 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     for coef_code, coef_name in key_coefs.items():
                         value = coefs.get(coef_code)
                         if value is not None:
+                            # Экранируем специальные символы
+                            safe_coef_name = escape_markdown(str(coef_name))
                             # Проверяем, что value - это число
                             if isinstance(value, (int, float)):
-                                result += f"• {coef_name}: {value:.2f}\n"
+                                result += f"• {safe_coef_name}: {value:.2f}\n"
                             else:
-                                result += f"• {coef_name}: {value}\n"
+                                safe_value = escape_markdown(str(value))
+                                result += f"• {safe_coef_name}: {safe_value}\n"
                 else:
                     result += "\n❌ **Финансовые данные недоступны**\n"
             else:
@@ -2167,10 +2188,15 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 
                 # Информация о компании
                 if company_info:
-                    result += f"🏢 **Компания:** {company_info.get('name', 'Не указано')}\n"
-                    result += f"**ИНН:** {company_info.get('inn', 'Не указано')}\n"
-                    result += f"**ОГРН:** {company_info.get('ogrn', 'Не указано')}\n"
-                    result += f"**Адрес:** {company_info.get('address', 'Не указано')}\n\n"
+                    safe_name = escape_markdown(str(company_info.get('name', 'Не указано')))
+                    safe_inn = escape_markdown(str(company_info.get('inn', 'Не указано')))
+                    safe_ogrn = escape_markdown(str(company_info.get('ogrn', 'Не указано')))
+                    safe_address = escape_markdown(str(company_info.get('address', 'Не указано')))
+                    
+                    result += f"🏢 **Компания:** {safe_name}\n"
+                    result += f"**ИНН:** {safe_inn}\n"
+                    result += f"**ОГРН:** {safe_ogrn}\n"
+                    result += f"**Адрес:** {safe_address}\n\n"
                 
                 # Сводка по производствам
                 total_proceedings = summary.get('total_proceedings', 0)

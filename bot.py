@@ -1970,7 +1970,9 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 
         except Exception as e:
             logger.error(f"[bot] Ошибка при проверке ИНН {inn}: {e}")
-            await update.message.reply_text(f"❌ Произошла ошибка при проверке: {str(e)}")
+            # Экранируем специальные символы для Markdown
+            error_msg = str(e).replace('*', '\\*').replace('_', '\\_').replace('`', '\\`').replace('[', '\\[').replace(']', '\\]')
+            await update.message.reply_text(f"❌ Произошла ошибка при проверке: {error_msg}")
         
         # Сбрасываем статус пользователя
         self.user_sessions[user_id]['status'] = 'waiting_for_tender'

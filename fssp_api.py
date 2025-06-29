@@ -278,6 +278,57 @@ class FSSPAPIClient:
                 'message': f'Ошибка форматирования: {str(e)}'
             }
     
+    async def check_company(self, inn: str) -> Optional[Dict[str, Any]]:
+        """
+        Проверка компании по ИНН (обертка для get_company_proceedings)
+        
+        Args:
+            inn: ИНН организации
+            
+        Returns:
+            Dict с информацией о компании и исполнительных производствах
+        """
+        try:
+            logger.info(f"[FSSP] Проверка компании по ИНН {inn}")
+            
+            # Получаем исполнительные производства
+            proceedings_data = await self.get_company_proceedings(inn)
+            
+            if not proceedings_data:
+                return {
+                    'status': 'error',
+                    'error': 'Не удалось получить данные ФССП'
+                }
+            
+            # Формируем результат в нужном формате
+            result = {
+                'status': 'success',
+                'company_info': {
+                    'inn': inn,
+                    'name': proceedings_data.get('company_name', 'Не указано'),
+                    'ogrn': proceedings_data.get('ogrn', 'Не указано'),
+                    'address': proceedings_data.get('address', 'Не указано')
+                },
+                'executive_proceedings': proceedings_data.get('proceedings', []),
+                'summary': {
+                    'total_proceedings': len(proceedings_data.get('proceedings', [])),
+                    'active_proceedings': len([p for p in proceedings_data.get('proceedings', []) 
+                                             if p.get('status') == 'Активное']),
+                    'total_debt': sum(float(p.get('amount', 0)) for p in proceedings_data.get('proceedings', [])
+                                    if isinstance(p.get('amount'), (int, float)))
+                }
+            }
+            
+            logger.info(f"[FSSP] Проверка завершена для ИНН {inn}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"[FSSP] Ошибка при проверке компании {inn}: {e}")
+            return {
+                'status': 'error',
+                'error': str(e)
+            }
+    
     async def test_connection(self) -> bool:
         """
         Проверяет доступность API

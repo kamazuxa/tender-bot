@@ -327,8 +327,8 @@ class DamiaClient:
             logger.info(f"[damia] Найден noticeInfoId для 223-ФЗ: {notice_info_id}")
             
             # Для 223-ФЗ ищем полный регистрационный номер в тексте
-            # Поддерживаем номера разной длины (11-20 цифр)
-            full_number_pattern = r'\b\d{11,20}\b'
+            # Поддерживаем номера разной длины (10-20 цифр)
+            full_number_pattern = r'\b\d{10,20}\b'
             full_matches = re.findall(full_number_pattern, text)
             
             if full_matches:
@@ -344,6 +344,7 @@ class DamiaClient:
         
         # Паттерны для поиска номеров тендеров (поддерживаем разную длину)
         patterns = [
+            r'\b\d{10}\b',  # 10-значный номер (как 9703074147)
             r'\b\d{11}\b',  # 11-значный номер (как 32514989413)
             r'\b\d{12}\b',  # 12-значный номер
             r'\b\d{13}\b',  # 13-значный номер
@@ -354,8 +355,8 @@ class DamiaClient:
             r'\b\d{18}\b',  # 18-значный номер
             r'\b\d{19}\b',  # 19-значный номер
             r'\b\d{20}\b',  # 20-значный номер
-            r'zakupki\.gov\.ru/epz/order/notice/.*?(\d{11,20})',  # Ссылка на госзакупки с номером
-            r'zakupki\.gov\.ru/.*?(\d{11,20})',  # Общая ссылка на госзакупки с номером
+            r'zakupki\.gov\.ru/epz/order/notice/.*?(\d{10,20})',  # Ссылка на госзакупки с номером
+            r'zakupki\.gov\.ru/.*?(\d{10,20})',  # Общая ссылка на госзакупки с номером
             r'regNumber=(\d+)',  # Формат с regNumber
             r'orderId=(\d+)',  # Формат с orderId
             r'zakupki\.gov\.ru/epz/order/notice/ea44/common-info\.html\?regNumber=(\d+)',  # Формат 44-ФЗ

@@ -2122,7 +2122,11 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                         safe_model_name = escape_markdown(str(model_name))
                         safe_risk_level = escape_markdown(str(risk_level))
                         
-                        result += f"• {safe_model_name}: {score} ({safe_risk_level}, {probability:.1f}%)\n"
+                        # Проверяем тип probability перед форматированием
+                        if isinstance(probability, (int, float)):
+                            result += f"• {safe_model_name}: {score} ({safe_risk_level}, {probability:.1f}%)\n"
+                        else:
+                            result += f"• {safe_model_name}: {score} ({safe_risk_level}, {probability}%)\n"
                     else:
                         safe_model_name = escape_markdown(str(model_name))
                         result += f"• {safe_model_name}: Ошибка\n"
@@ -2213,6 +2217,17 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         try:
             # Получаем данные ФССП
             fssp_data = await fssp_client.check_company(inn)
+            
+            # Если нет производств и нет данных о компании — выводим короткое сообщение
+            if (
+                fssp_data and fssp_data.get('status') == 'success' and
+                (not fssp_data.get('executive_proceedings') or len(fssp_data.get('executive_proceedings', [])) == 0) and
+                (not fssp_data.get('company_info') or all(
+                    not fssp_data['company_info'].get(k) or fssp_data['company_info'].get(k) == 'Не указано'
+                    for k in ['name', 'inn', 'ogrn', 'address']
+                ))
+            ):
+                return "👮 Проверка ФССП для ИНН {inn}\n\nКомпания не найдена в базе ФССП или у нее нет исполнительных производств."
             
             result = f"👮 **Проверка ФССП для ИНН {inn}**\n\n"
             

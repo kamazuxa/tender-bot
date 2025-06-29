@@ -149,41 +149,51 @@ class DamiaArbitrAPI:
         logger.info(f"[arbitr] Результат поиска дел для {inn}: {result}")
         
         if result and isinstance(result, dict):
-            # Обрабатываем данные в зависимости от формата
             if format_type == 1:  # группированные данные
                 result_data = result.get('result', {})
                 cases = []
                 total_count = 0
-                
+                years_summary = {}
+                roles_summary = {}
                 # Извлекаем дела из группированной структуры
                 for role, years_data in result_data.items():
+                    roles_summary[role] = 0
                     if isinstance(years_data, dict):
                         for year, year_data in years_data.items():
                             if isinstance(year_data, dict):
-                                # Подсчитываем дела в этом году
+                                year_total = 0
+                                year_amount = 0
+                                year_decisions = []
                                 for decision_type, decisions in year_data.items():
-                                    if isinstance(decisions, dict):
-                                        total_count += len(decisions)
-                                        # Добавляем дела в список
-                                        for case_number, case_data in decisions.items():
-                                            if isinstance(case_data, dict):
-                                                case_info = {
-                                                    'case_number': case_number,
-                                                    'role': role,
-                                                    'year': year,
-                                                    'case_type': case_data.get('Тип', 'Неизвестно'),
-                                                    'status': case_data.get('Статус', 'Неизвестно'),
-                                                    'court': case_data.get('Суд', 'Неизвестно'),
-                                                    'amount': case_data.get('Сумма', 0),
-                                                    'date': case_data.get('Дата', 'Неизвестно')
-                                                }
-                                                cases.append(case_info)
-                
+                                    if decision_type == 'Итого' and isinstance(decisions, dict):
+                                        year_total = decisions.get('Количество', 0)
+                                        year_amount = decisions.get('Сумма', 0)
+                                    elif isinstance(decisions, dict):
+                                        for decision_name, decision_data in decisions.items():
+                                            if isinstance(decision_data, dict):
+                                                year_decisions.append({
+                                                    'decision_type': decision_type,
+                                                    'decision_name': decision_name,
+                                                    'count': decision_data.get('Количество', 0),
+                                                    'amount': decision_data.get('Сумма', 0)
+                                                })
+                                if year not in years_summary:
+                                    years_summary[year] = []
+                                years_summary[year].append({
+                                    'role': role,
+                                    'total': year_total,
+                                    'amount': year_amount,
+                                    'decisions': year_decisions
+                                })
+                                roles_summary[role] += year_total
+                                total_count += year_total
                 return {
                     "inn": inn,
-                    "cases": cases,
+                    "cases": cases,  # пока не формируем плоский список дел
                     "total_count": total_count,
-                    "has_next_page": False,  # В группированном формате нет пагинации
+                    "years_summary": years_summary,
+                    "roles_summary": roles_summary,
+                    "has_next_page": False,
                     "status": "found"
                 }
             else:  # негруппированные данные (format=2)
@@ -306,43 +316,29 @@ class DamiaArbitrAPI:
         }
     
     def format_arbitrage_summary(self, cases_data: Dict) -> str:
-        """Форматирует сводку по арбитражным делам"""
+        """Форматирует сводку по арбитражным делам с деталями по годам и решениям"""
         if not cases_data or cases_data.get('status') != 'found':
             return "Арбитражные дела не найдены"
-        
-        cases = cases_data.get('cases', [])
         total_count = cases_data.get('total_count', 0)
-        
-        if not cases:
-            return "Арбитражные дела не найдены"
-        
+        years_summary = cases_data.get('years_summary', {})
+        roles_summary = cases_data.get('roles_summary', {})
         summary = f"📋 Найдено арбитражных дел: {total_count}\n\n"
-        
-        # Группируем по ролям
-        roles = {
-            '1': 'Истец',
-            '2': 'Ответчик', 
-            '3': 'Третье лицо',
-            '4': 'Иное лицо'
-        }
-        
-        role_counts = {}
-        for case in cases:
-            role = case.get('role', '4')
-            role_counts[role] = role_counts.get(role, 0) + 1
-        
-        for role_code, role_name in roles.items():
-            if role_code in role_counts:
-                summary += f"• {role_name}: {role_counts[role_code]} дел\n"
-        
-        # Добавляем последние дела
-        summary += "\n📄 Последние дела:\n"
-        for i, case in enumerate(cases[:5], 1):
-            case_number = case.get('case_number', 'Неизвестно')
-            case_type = case.get('case_type', 'Неизвестно')
-            status = case.get('status', 'Неизвестно')
-            summary += f"{i}. {case_number} ({case_type}) - {status}\n"
-        
+        # По ролям
+        if roles_summary:
+            summary += "📊 По ролям:\n"
+            for role, count in roles_summary.items():
+                summary += f"• {role}: {count} дел\n"
+        # По годам
+        if years_summary:
+            summary += "\n📆 По годам:\n"
+            for year in sorted(years_summary.keys(), reverse=True):
+                for item in years_summary[year]:
+                    role = item['role']
+                    total = item['total']
+                    amount = item['amount']
+                    summary += f"{year} ({role}): {total} дел на {amount:,} руб.\n"
+                    for d in item['decisions']:
+                        summary += f"  - {d['decision_name']} ({d['decision_type']}): {d['count']} дел на {d['amount']:,} руб.\n"
         return summary
 
 # Создаем глобальный экземпляр

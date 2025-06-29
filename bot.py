@@ -845,9 +845,12 @@ class TenderBot:
         if not search_queries:
             await bot.send_message(chat_id=chat_id, text="❌ Не удалось выделить товарные позиции из анализа. Попробуйте другой тендер или обратитесь к администратору.")
             return
-        # --- Показываем только одну кнопку '🔎 Найти поставщиков' ---
-        keyboard = [[InlineKeyboardButton("🔎 Найти поставщиков", callback_data="find_suppliers")]]
-        await bot.send_message(chat_id=chat_id, text="Хотите найти поставщиков по результатам анализа?", reply_markup=InlineKeyboardMarkup(keyboard))
+        # --- Показываем кнопки после анализа ---
+        keyboard = [
+            [InlineKeyboardButton("🔎 Найти поставщиков", callback_data="find_suppliers")],
+            [InlineKeyboardButton("📈 Анализ похожих закупок", callback_data="history")]
+        ]
+        await bot.send_message(chat_id=chat_id, text="Что хотите сделать дальше?", reply_markup=InlineKeyboardMarkup(keyboard))
     
     async def _send_analysis(self, update: Update, analysis_result: dict) -> None:
         """Отправляет результаты анализа"""

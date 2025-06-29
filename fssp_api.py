@@ -223,10 +223,16 @@ class FSSPAPIClient:
                 'data': data
             }
             
-            if format == 1:  # группированные данные
-                result['inn'] = data.get('ИНН', 'Не указано')
-            else:  # негруппированные данные
-                result['inn'] = data.get('ИНН', 'Не указано')
+            # В API-ФССП данные возвращаются в виде словаря с ИНН как ключом
+            # Извлекаем ИНН из ключей данных
+            if isinstance(data, dict):
+                inn_keys = [key for key in data.keys() if key.isdigit() and len(key) in [10, 12]]
+                if inn_keys:
+                    result['inn'] = inn_keys[0]
+                else:
+                    result['inn'] = 'Не указано'
+            else:
+                result['inn'] = 'Не указано'
             
             return result
         except Exception as e:
@@ -330,40 +336,72 @@ class FSSPAPIClient:
                 
                 # Обрабатываем данные в зависимости от формата
                 if isinstance(data, dict):
-                    # Ищем список производств в различных полях
-                    for key, value in data.items():
-                        if isinstance(value, list) and value:
-                            proceedings = value
-                            break
-                        elif isinstance(value, dict) and 'result' in value:
-                            result_data = value['result']
-                            if isinstance(result_data, list):
-                                proceedings = result_data
-                                break
+                    # Ищем данные по ИНН
+                    inn_data = data.get(inn, {})
+                    if isinstance(inn_data, dict):
+                        # Обрабатываем группированные данные (format=1)
+                        for year, year_data in inn_data.items():
+                            if isinstance(year_data, dict):
+                                # Обрабатываем статусы: Завершено, Погашено, Не завершено
+                                for status_type, status_data in year_data.items():
+                                    if isinstance(status_data, dict):
+                                        # Обрабатываем типы задолженности
+                                        for debt_type, debt_data in status_data.items():
+                                            if isinstance(debt_data, dict):
+                                                # Получаем список ИП
+                                                ip_list = debt_data.get('ИП', [])
+                                                amount = debt_data.get('Сумма', 0)
+                                                count = debt_data.get('Количество', 0)
+                                                
+                                                # Подсчитываем общую задолженность
+                                                if isinstance(amount, (int, float)) and amount > 0:
+                                                    total_debt += amount
+                                                
+                                                # Подсчитываем активные производства
+                                                if status_type == 'Не завершено':
+                                                    active_count += count
+                                                
+                                                # Добавляем каждое производство в список
+                                                for ip_number in ip_list:
+                                                    proc_info = {
+                                                        'number': ip_number,
+                                                        'amount': amount,
+                                                        'status': status_type,
+                                                        'year': year,
+                                                        'debt_type': debt_type,
+                                                        'date': f"{year}",
+                                                        'court': 'Не указано',
+                                                        'bailiff': 'Не указано'
+                                                    }
+                                                    proceedings.append(proc_info)
+                    elif isinstance(inn_data, list):
+                        # Обрабатываем негруппированные данные (format=2)
+                        for proc in inn_data:
+                            if isinstance(proc, dict):
+                                proc_info = {
+                                    'number': proc.get('РегНомерИП', proc.get('number', 'Не указано')),
+                                    'amount': proc.get('Сумма', proc.get('amount', 0)),
+                                    'status': proc.get('Статус', proc.get('status', 'Не указано')),
+                                    'date': proc.get('Дата', proc.get('date', 'Не указано')),
+                                    'court': proc.get('ДепНаим', proc.get('court', 'Не указано')),
+                                    'bailiff': proc.get('Пристав', proc.get('bailiff', 'Не указано')),
+                                    'subject': proc.get('Предмет', 'Не указано'),
+                                    'debtor': proc.get('Должник', {})
+                                }
+                                
+                                # Подсчитываем общую задолженность
+                                amount = proc.get('Сумма', proc.get('amount', 0))
+                                if isinstance(amount, (int, float)) and amount > 0:
+                                    total_debt += amount
+                                
+                                # Подсчитываем активные производства
+                                status = proc.get('Статус', proc.get('status', '')).lower()
+                                if 'не завершено' in status or 'актив' in status or 'исполн' in status:
+                                    active_count += 1
+                                
+                                proceedings.append(proc_info)
                 
                 logger.info(f"[FSSP] Найдено производств для {inn}: {len(proceedings)}")
-                
-                # Обрабатываем каждое производство
-                for proc in proceedings:
-                    if isinstance(proc, dict):
-                        proc_info = {
-                            'number': proc.get('РегНомер', 'Не указано'),
-                            'amount': proc.get('Сумма', 0),
-                            'status': proc.get('Статус', 'Не указано'),
-                            'date': proc.get('Дата', 'Не указано')
-                        }
-                        
-                        # Подсчитываем общую задолженность
-                        amount = proc.get('Сумма', 0)
-                        if isinstance(amount, (int, float)) and amount > 0:
-                            total_debt += amount
-                        
-                        # Подсчитываем активные производства
-                        status = proc.get('Статус', '').lower()
-                        if 'актив' in status or 'исполн' in status:
-                            active_count += 1
-                        
-                        proceedings.append(proc_info)
                 
                 result['executive_proceedings'] = proceedings
                 result['summary'] = {

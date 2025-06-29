@@ -47,8 +47,19 @@ class DamiaArbitrAPI:
                     url = f"{self.base_url}/{endpoint}"
                     response = await client.get(url, params=params)
                     
+                    logger.info(f"[arbitr] Запрос к {url} с параметрами {params}")
+                    logger.info(f"[arbitr] Статус ответа: {response.status_code}")
+                    logger.info(f"[arbitr] Текст ответа: {response.text[:500]}...")
+                    
                     if response.status_code == 200:
-                        return response.json()
+                        try:
+                            result = response.json()
+                            logger.info(f"[arbitr] Успешный ответ для {endpoint}: {result}")
+                            return result
+                        except Exception as e:
+                            logger.error(f"[arbitr] Ошибка парсинга JSON для {endpoint}: {e}")
+                            logger.error(f"[arbitr] Текст ответа: {response.text}")
+                            return None
                     elif response.status_code == 404:
                         logger.warning(f"[arbitr] Данные не найдены для {endpoint}: {params}")
                         return None
@@ -135,13 +146,87 @@ class DamiaArbitrAPI:
         
         result = await self._make_request('dela', params)
         
-        if result:
+        logger.info(f"[arbitr] Результат поиска дел для {inn}: {result}")
+        
+        if result and isinstance(result, dict):
+            # Обрабатываем данные в зависимости от формата
+            if format_type == 1:  # группированные данные
+                result_data = result.get('result', {})
+                cases = []
+                total_count = 0
+                
+                # Извлекаем дела из группированной структуры
+                for role, years_data in result_data.items():
+                    if isinstance(years_data, dict):
+                        for year, year_data in years_data.items():
+                            if isinstance(year_data, dict):
+                                # Подсчитываем дела в этом году
+                                for decision_type, decisions in year_data.items():
+                                    if isinstance(decisions, dict):
+                                        total_count += len(decisions)
+                                        # Добавляем дела в список
+                                        for case_number, case_data in decisions.items():
+                                            if isinstance(case_data, dict):
+                                                case_info = {
+                                                    'case_number': case_number,
+                                                    'role': role,
+                                                    'year': year,
+                                                    'case_type': case_data.get('Тип', 'Неизвестно'),
+                                                    'status': case_data.get('Статус', 'Неизвестно'),
+                                                    'court': case_data.get('Суд', 'Неизвестно'),
+                                                    'amount': case_data.get('Сумма', 0),
+                                                    'date': case_data.get('Дата', 'Неизвестно')
+                                                }
+                                                cases.append(case_info)
+                
+                return {
+                    "inn": inn,
+                    "cases": cases,
+                    "total_count": total_count,
+                    "has_next_page": False,  # В группированном формате нет пагинации
+                    "status": "found"
+                }
+            else:  # негруппированные данные (format=2)
+                result_data = result.get('result', {})
+                cases = []
+                total_count = result.get('count', 0)
+                has_next_page = result.get('next_page', False)
+                
+                # Извлекаем дела из негруппированной структуры
+                for role, role_cases in result_data.items():
+                    if isinstance(role_cases, dict):
+                        for case_number, case_data in role_cases.items():
+                            if isinstance(case_data, dict):
+                                case_info = {
+                                    'case_number': case_number,
+                                    'role': role,
+                                    'case_type': case_data.get('Тип', 'Неизвестно'),
+                                    'status': case_data.get('Статус', 'Неизвестно'),
+                                    'court': case_data.get('Суд', 'Неизвестно'),
+                                    'amount': case_data.get('Сумма', 0),
+                                    'date': case_data.get('Дата', 'Неизвестно'),
+                                    'judge': case_data.get('Судья', 'Неизвестно'),
+                                    'url': case_data.get('Url', ''),
+                                    'match_type': case_data.get('Совпадение', 'Неизвестно')
+                                }
+                                cases.append(case_info)
+                
+                return {
+                    "inn": inn,
+                    "cases": cases,
+                    "total_count": total_count,
+                    "has_next_page": has_next_page,
+                    "status": "found"
+                }
+        elif result and isinstance(result, str):
+            logger.warning(f"[arbitr] API вернул строку вместо JSON для {inn}: {result}")
             return {
                 "inn": inn,
-                "cases": result.get('result', []),
-                "total_count": result.get('count', 0),
-                "has_next_page": result.get('next_page', False),
-                "status": "found"
+                "cases": [],
+                "total_count": 0,
+                "has_next_page": False,
+                "status": "error",
+                "error": f"API вернул неверный формат: {result}"
             }
         
         return {

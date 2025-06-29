@@ -189,10 +189,17 @@ class DamiaScoringAPI:
             params['region'] = str(region)
         
         result = await self._make_request('fincoefs', params)
+        logger.info(f"[scoring] Результат get_financial_coefficients для {inn}: {result}")
         
         if result and inn in result:
             # Согласно документации, ответ содержит ИНН как ключ
             fin_data = result[inn]
+            logger.info(f"[scoring] Финансовые данные для {inn}: {fin_data}")
+            
+            # Логируем структуру каждого коэффициента
+            for coef_name, coef_value in fin_data.items():
+                if coef_name in ['КоэфТекЛикв', 'РентАктивов', 'КоэфФинАвт', 'РентПродаж']:
+                    logger.info(f"[scoring] Коэффициент {coef_name}: {coef_value} (тип: {type(coef_value)})")
             
             return {
                 "inn": inn,

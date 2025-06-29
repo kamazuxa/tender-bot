@@ -49,6 +49,15 @@ class DamiaClient:
                 try:
                     data = resp.json()
                     logger.info(f"[damia] zakupka ответ (JSON): {data}")
+                    
+                    # Проверяем, что data - это словарь, а не строка
+                    if isinstance(data, str):
+                        logger.warning(f"[damia] API вернул строку вместо JSON: {data}")
+                        if "Ошибка:" in data or "ошибка" in data.lower():
+                            logger.error(f"[damia] API вернул ошибку: {data}")
+                            raise DamiaAPIError(f"API error: {data}")
+                        return None
+                    
                     return data
                 except json.JSONDecodeError:
                     # Если ответ не JSON, проверяем на ошибки
@@ -75,6 +84,15 @@ class DamiaClient:
                 try:
                     data = resp.json()
                     logger.info(f"[damia] contract ответ: {data}")
+                    
+                    # Проверяем, что data - это словарь, а не строка
+                    if isinstance(data, str):
+                        logger.warning(f"[damia] API вернул строку вместо JSON: {data}")
+                        if "Ошибка:" in data or "ошибка" in data.lower():
+                            logger.error(f"[damia] API вернул ошибку: {data}")
+                            raise DamiaAPIError(f"API error: {data}")
+                        return None
+                    
                     return data
                 except json.JSONDecodeError:
                     # Если ответ не JSON, проверяем на ошибки

@@ -2027,48 +2027,13 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             
             result = f"🏢 **Проверка ФНС для ИНН {inn}**\n\n"
             
-            if company_data.get('status') == 'found':
-                data = company_data.get('data', {})
-                result += f"**Название:** {data.get('name', 'Не указано')}\n"
-                result += f"**ИНН:** {data.get('inn', 'Не указано')}\n"
-                result += f"**ОГРН:** {data.get('ogrn', 'Не указано')}\n"
-                result += f"**Статус:** {data.get('status', 'Не указано')}\n"
-                result += f"**Адрес:** {data.get('address', 'Не указано')}\n"
-                result += f"**Директор:** {data.get('director', 'Не указано')}\n"
-                result += f"**Дата регистрации:** {data.get('registration_date', 'Не указано')}\n\n"
-            else:
-                result += "❌ **Данные компании не найдены**\n\n"
+            # Форматируем данные компании
+            company_info = fns_api.format_company_info(company_data)
+            result += company_info + "\n\n"
             
-            # Результаты проверки
-            if check_data.get('status') != 'not_found':
-                result += "🔍 **Результаты проверки:**\n"
-                
-                if check_data.get('has_violations'):
-                    result += "⚠️ **Найдены нарушения!**\n"
-                    result += f"• Количество нарушений: {check_data.get('violations_count', 0)}\n"
-                    result += f"• Последняя проверка: {check_data.get('last_check_date', 'Не указано')}\n"
-                else:
-                    result += "✅ **Нарушения не найдены**\n"
-                
-                # Дополнительные проверки
-                checks = []
-                if check_data.get('mass_director'):
-                    checks.append("• Массовый директор")
-                if check_data.get('mass_founder'):
-                    checks.append("• Массовый учредитель")
-                if check_data.get('liquidation'):
-                    checks.append("• Ликвидация")
-                if check_data.get('reorganization'):
-                    checks.append("• Реорганизация")
-                if check_data.get('unreliable_data'):
-                    checks.append("• Недостоверные данные")
-                
-                if checks:
-                    result += "\n⚠️ **Дополнительные риски:**\n" + "\n".join(checks) + "\n"
-                else:
-                    result += "\n✅ **Дополнительные риски не выявлены**\n"
-            else:
-                result += "❌ **Данные проверки недоступны**\n"
+            # Форматируем результаты проверки
+            check_info = fns_api.format_company_check(check_data)
+            result += check_info
             
             return result
             
@@ -2118,6 +2083,9 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                         result += f"{i}. {case_number} ({case_type}) - {status}\n"
                 else:
                     result += "✅ **Арбитражные дела не найдены**\n"
+            elif cases_data.get('status') == 'error':
+                error_msg = cases_data.get('error', 'Неизвестная ошибка')
+                result += f"❌ **Ошибка при получении данных: {error_msg}**\n"
             else:
                 result += "❌ **Данные арбитражных дел недоступны**\n"
             
@@ -2187,8 +2155,25 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                                     year_data = value[latest_year]
                                     if isinstance(year_data, dict) and 'Знач' in year_data:
                                         display_value = year_data['Знач']
+                                        norm_value = year_data.get('Норма', 'Не указано')
+                                        norm_comparison = year_data.get('НормаСравн', 'Не указано')
+                                        
                                         if isinstance(display_value, (int, float)):
-                                            result += f"• {safe_coef_name} ({latest_year}): {display_value:.3f}\n"
+                                            # Определяем единицы измерения и форматируем
+                                            if coef_code == 'КоэфТекЛикв':
+                                                # Коэффициент текущей ликвидности - безразмерная величина
+                                                result += f"• {safe_coef_name} ({latest_year}): {display_value:.3f} (норма: {norm_value:.3f}, {norm_comparison})\n"
+                                            elif coef_code == 'РентАктивов':
+                                                # Рентабельность активов - в процентах
+                                                result += f"• {safe_coef_name} ({latest_year}): {display_value:.3f}% (норма: {norm_value:.3f}%, {norm_comparison})\n"
+                                            elif coef_code == 'КоэфФинАвт':
+                                                # Коэффициент финансовой автономии - безразмерная величина
+                                                result += f"• {safe_coef_name} ({latest_year}): {display_value:.3f} (норма: {norm_value:.3f}, {norm_comparison})\n"
+                                            elif coef_code == 'РентПродаж':
+                                                # Рентабельность продаж - в процентах
+                                                result += f"• {safe_coef_name} ({latest_year}): {display_value:.3f}% (норма: {norm_value:.3f}%, {norm_comparison})\n"
+                                            else:
+                                                result += f"• {safe_coef_name} ({latest_year}): {display_value:.3f}\n"
                                         else:
                                             result += f"• {safe_coef_name} ({latest_year}): {display_value}\n"
                                     else:
@@ -2198,7 +2183,17 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                             else:
                                 # Проверяем, что value - это число
                                 if isinstance(value, (int, float)):
-                                    result += f"• {safe_coef_name}: {value:.3f}\n"
+                                    # Определяем единицы измерения для простых значений
+                                    if coef_code == 'КоэфТекЛикв':
+                                        result += f"• {safe_coef_name}: {value:.3f} (коэффициент)\n"
+                                    elif coef_code == 'РентАктивов':
+                                        result += f"• {safe_coef_name}: {value:.3f}% (рентабельность)\n"
+                                    elif coef_code == 'КоэфФинАвт':
+                                        result += f"• {safe_coef_name}: {value:.3f} (коэффициент)\n"
+                                    elif coef_code == 'РентПродаж':
+                                        result += f"• {safe_coef_name}: {value:.3f}% (рентабельность)\n"
+                                    else:
+                                        result += f"• {safe_coef_name}: {value:.3f}\n"
                                 else:
                                     safe_value = escape_markdown(str(value))
                                     result += f"• {safe_coef_name}: {safe_value}\n"
@@ -2266,7 +2261,8 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 else:
                     result += "✅ **Исполнительные производства не найдены**\n"
             else:
-                result += "❌ **Данные ФССП недоступны**\n"
+                error_msg = fssp_data.get('error', 'Неизвестная ошибка') if fssp_data else 'Данные недоступны'
+                result += f"❌ **Данные ФССП недоступны: {error_msg}**\n"
             
             return result
             

@@ -21,6 +21,10 @@ DAMIA_FNS_BASE_URL = 'https://api-fns.ru/api'
 # API для арбитражных дел
 DAMIA_ARBITR_API_KEY = 'ваш_ключ_для_арбитражей'
 DAMIA_ARBITR_BASE_URL = 'https://api.damia.ru/arb'
+
+# API для ФССП (исполнительные производства)
+FSSP_API_KEY = 'ваш_ключ_для_ФССП'
+FSSP_BASE_URL = 'https://api.fssp.ru'
 ```
 
 ## 📊 Доступные API сервисы
@@ -50,7 +54,13 @@ DAMIA_ARBITR_BASE_URL = 'https://api.damia.ru/arb'
   - `track_arbitrage_case()` - отслеживание дел
   - `get_tracked_cases()` - список отслеживаемых
 
-### 4. API-Проверка поставщиков (`damia_api.py`)
+### 4. API-ФССП (`fssp_api.py`)
+- **Назначение**: Проверка исполнительных производств
+- **Методы**:
+  - `check_company()` - проверка компании по ИНН
+  - `test_connection()` - проверка доступности API
+
+### 5. API-Проверка поставщиков (`damia_api.py`)
 - **Назначение**: Дополнительные проверки поставщиков
 - **Методы**:
   - `get_fns()` - проверка ФНС
@@ -80,8 +90,25 @@ companies = await fns_api.search_companies("ООО Рога и Копыта")
 ```python
 from arbitr_api import arbitr_api
 
-# Арбитражные дела компании
+# Получение арбитражных дел
 cases = await arbitr_api.get_arbitrage_cases_by_inn("1234567890")
+
+# Форматирование результата
+summary = arbitr_api.format_arbitrage_summary(cases)
+print(summary)
+```
+
+### Проверка исполнительных производств
+```python
+from fssp_api import fssp_client
+
+# Проверка компании в ФССП
+result = await fssp_client.check_company("1234567890")
+
+if result['status'] == 'success':
+    print(f"Всего производств: {result['summary']['total_proceedings']}")
+    print(f"Активных: {result['summary']['active_proceedings']}")
+    print(f"Общая задолженность: {result['summary']['total_debt']} руб.")
 ```
 
 ## ⚠️ Важные замечания
@@ -96,7 +123,8 @@ cases = await arbitr_api.get_arbitrage_cases_by_inn("1234567890")
 1. **API-Закупки**: https://damia.ru
 2. **API-ФНС**: https://api-fns.ru
 3. **API-Арбитражи**: https://damia.ru/arb
-4. **API-Проверка поставщиков**: https://damia.ru/supplier
+4. **API-ФССП**: https://api.fssp.ru
+5. **API-Проверка поставщиков**: https://damia.ru/supplier
 
 ## 📝 Примеры запросов
 

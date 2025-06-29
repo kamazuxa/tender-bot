@@ -1,20 +1,21 @@
 """
 FSSP API Client для проверки исполнительных производств
+Интеграция с API-ФССП через платформу DaMIA
 """
 
 import aiohttp
 import logging
-from typing import Dict, Optional, Any
-from config import FSSP_API_KEY, FSSP_BASE_URL
+from typing import Dict, Optional, Any, List
+from config import FSSP_API_KEY
 
 logger = logging.getLogger(__name__)
 
 class FSSPAPIClient:
-    """Клиент для работы с FSSP API"""
+    """Клиент для работы с FSSP API через DaMIA"""
     
     def __init__(self):
         self.api_key = FSSP_API_KEY
-        self.base_url = FSSP_BASE_URL
+        self.base_url = "https://api.damia.ru/fssp"
         self.session = None
     
     async def _get_session(self):
@@ -28,106 +29,252 @@ class FSSPAPIClient:
         if self.session and not self.session.closed:
             await self.session.close()
     
-    async def check_company(self, inn: str) -> Optional[Dict[str, Any]]:
+    async def get_executive_proceeding_ul(self, regn: str) -> Optional[Dict[str, Any]]:
         """
-        Проверяет компанию по ИНН в базе ФССП
+        Информация об исполнительном производстве ЮЛ (isp)
         
         Args:
-            inn: ИНН компании
+            regn: Номер исполнительного производства (индивидуального или сводного)
             
         Returns:
-            Dict с результатами проверки или None при ошибке
+            Dict с информацией об исполнительном производстве или None при ошибке
         """
         try:
             session = await self._get_session()
             
-            headers = {
-                'Authorization': f'Bearer {self.api_key}',
-                'Content-Type': 'application/json'
-            }
-            
             params = {
-                'inn': inn,
-                'type': 'ul'  # юридическое лицо
+                'regn': regn,
+                'key': self.api_key
             }
             
             async with session.get(
-                f"{self.base_url}/search",
-                headers=headers,
+                f"{self.base_url}/isp",
                 params=params
             ) as response:
                 if response.status == 200:
                     data = await response.json()
-                    logger.info(f"[FSSP] Успешная проверка ИНН {inn}")
-                    return self._format_result(data)
+                    logger.info(f"[FSSP] Успешное получение информации о производстве {regn}")
+                    return self._format_isp_result(data)
                 else:
-                    logger.error(f"[FSSP] Ошибка API: {response.status}")
+                    logger.error(f"[FSSP] Ошибка API isp: {response.status}")
                     return None
                     
         except Exception as e:
-            logger.error(f"[FSSP] Ошибка при проверке ИНН {inn}: {e}")
+            logger.error(f"[FSSP] Ошибка при получении информации о производстве {regn}: {e}")
             return None
     
-    def _format_result(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    async def get_company_proceedings(self, inn: str, from_date: Optional[str] = None, 
+                                    to_date: Optional[str] = None, format: int = 2, 
+                                    page: int = 1) -> Optional[Dict[str, Any]]:
         """
-        Форматирует результат проверки ФССП
+        Информация об участиях ЮЛ в исполнительных производствах (isps)
         
         Args:
-            data: Сырые данные от API
+            inn: ИНН организации
+            from_date: Дата возбуждения после (YYYY-MM-DD)
+            to_date: Дата возбуждения до (YYYY-MM-DD)
+            format: Тип формата (1 - группированный, 2 - негруппированный)
+            page: Номер страницы
             
         Returns:
-            Отформатированный результат
+            Dict с информацией об исполнительных производствах или None при ошибке
         """
+        try:
+            session = await self._get_session()
+            
+            params = {
+                'inn': inn,
+                'format': format,
+                'page': page,
+                'key': self.api_key
+            }
+            
+            if from_date:
+                params['from_date'] = from_date
+            if to_date:
+                params['to_date'] = to_date
+            
+            async with session.get(
+                f"{self.base_url}/isps",
+                params=params
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    logger.info(f"[FSSP] Успешное получение производств для ИНН {inn}")
+                    return self._format_isps_result(data, format)
+                else:
+                    logger.error(f"[FSSP] Ошибка API isps: {response.status}")
+                    return None
+                    
+        except Exception as e:
+            logger.error(f"[FSSP] Ошибка при получении производств для ИНН {inn}: {e}")
+            return None
+    
+    async def get_executive_proceeding_fl(self, regn: str) -> Optional[Dict[str, Any]]:
+        """
+        Информация об исполнительном производстве ФЛ (ispfl)
+        
+        Args:
+            regn: Номер исполнительного производства (индивидуального)
+            
+        Returns:
+            Dict с информацией об исполнительном производстве или None при ошибке
+        """
+        try:
+            session = await self._get_session()
+            
+            params = {
+                'regn': regn,
+                'key': self.api_key
+            }
+            
+            async with session.get(
+                f"{self.base_url}/ispfl",
+                params=params
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    logger.info(f"[FSSP] Успешное получение информации о производстве ФЛ {regn}")
+                    return self._format_ispfl_result(data)
+                else:
+                    logger.error(f"[FSSP] Ошибка API ispfl: {response.status}")
+                    return None
+                    
+        except Exception as e:
+            logger.error(f"[FSSP] Ошибка при получении информации о производстве ФЛ {regn}: {e}")
+            return None
+    
+    async def get_person_proceedings(self, fam: str, nam: str, otch: Optional[str] = None,
+                                   bdate: Optional[str] = None, region: Optional[int] = None,
+                                   format: int = 2, page: int = 1) -> Optional[Dict[str, Any]]:
+        """
+        Информация об участиях ФЛ в исполнительных производствах (ispsfl)
+        
+        Args:
+            fam: Фамилия должника
+            nam: Имя должника
+            otch: Отчество должника (необязательно)
+            bdate: Дата рождения в формате DD.MM.YYYY (необязательно)
+            region: Код региона отдела судебных приставов (необязательно)
+            format: Тип формата (1 - группированный, 2 - негруппированный)
+            page: Номер страницы
+            
+        Returns:
+            Dict с информацией об исполнительных производствах или None при ошибке
+        """
+        try:
+            session = await self._get_session()
+            
+            params = {
+                'fam': fam,
+                'nam': nam,
+                'format': format,
+                'page': page,
+                'key': self.api_key
+            }
+            
+            if otch:
+                params['otch'] = otch
+            if bdate:
+                params['bdate'] = bdate
+            if region:
+                params['region'] = region
+            
+            async with session.get(
+                f"{self.base_url}/ispsfl",
+                params=params
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    logger.info(f"[FSSP] Успешное получение производств для ФЛ {fam} {nam}")
+                    return self._format_ispsfl_result(data, format)
+                else:
+                    logger.error(f"[FSSP] Ошибка API ispsfl: {response.status}")
+                    return None
+                    
+        except Exception as e:
+            logger.error(f"[FSSP] Ошибка при получении производств для ФЛ {fam} {nam}: {e}")
+            return None
+    
+    def _format_isp_result(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Форматирует результат метода isp"""
+        try:
+            return {
+                'status': 'success',
+                'method': 'isp',
+                'data': data,
+                'regn': data.get('РегНомер', 'Не указано')
+            }
+        except Exception as e:
+            logger.error(f"[FSSP] Ошибка форматирования результата isp: {e}")
+            return {
+                'status': 'error',
+                'method': 'isp',
+                'message': f'Ошибка форматирования: {str(e)}'
+            }
+    
+    def _format_isps_result(self, data: Dict[str, Any], format: int) -> Dict[str, Any]:
+        """Форматирует результат метода isps"""
         try:
             result = {
                 'status': 'success',
-                'company_info': {},
-                'executive_proceedings': [],
-                'summary': {
-                    'total_proceedings': 0,
-                    'active_proceedings': 0,
-                    'total_debt': 0
-                }
+                'method': 'isps',
+                'format': format,
+                'data': data
             }
             
-            # Извлекаем информацию о компании
-            if 'company' in data:
-                company = data['company']
-                result['company_info'] = {
-                    'name': company.get('name', 'Не указано'),
-                    'inn': company.get('inn', 'Не указано'),
-                    'ogrn': company.get('ogrn', 'Не указано'),
-                    'address': company.get('address', 'Не указано')
-                }
-            
-            # Извлекаем исполнительные производства
-            if 'proceedings' in data:
-                proceedings = data['proceedings']
-                result['executive_proceedings'] = []
-                
-                for proc in proceedings:
-                    proceeding = {
-                        'number': proc.get('number', 'Не указано'),
-                        'date': proc.get('date', 'Не указано'),
-                        'amount': proc.get('amount', 0),
-                        'status': proc.get('status', 'Не указано'),
-                        'bailiff': proc.get('bailiff', 'Не указано'),
-                        'department': proc.get('department', 'Не указано')
-                    }
-                    result['executive_proceedings'].append(proceeding)
-                    
-                    # Обновляем сводку
-                    result['summary']['total_proceedings'] += 1
-                    if proc.get('status') == 'active':
-                        result['summary']['active_proceedings'] += 1
-                    result['summary']['total_debt'] += proc.get('amount', 0)
+            if format == 1:  # группированные данные
+                result['inn'] = data.get('ИНН', 'Не указано')
+            else:  # негруппированные данные
+                result['inn'] = data.get('ИНН', 'Не указано')
             
             return result
-            
         except Exception as e:
-            logger.error(f"[FSSP] Ошибка форматирования результата: {e}")
+            logger.error(f"[FSSP] Ошибка форматирования результата isps: {e}")
             return {
                 'status': 'error',
+                'method': 'isps',
+                'message': f'Ошибка форматирования: {str(e)}'
+            }
+    
+    def _format_ispfl_result(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Форматирует результат метода ispfl"""
+        try:
+            return {
+                'status': 'success',
+                'method': 'ispfl',
+                'data': data,
+                'result': data.get('result', {})
+            }
+        except Exception as e:
+            logger.error(f"[FSSP] Ошибка форматирования результата ispfl: {e}")
+            return {
+                'status': 'error',
+                'method': 'ispfl',
+                'message': f'Ошибка форматирования: {str(e)}'
+            }
+    
+    def _format_ispsfl_result(self, data: Dict[str, Any], format: int) -> Dict[str, Any]:
+        """Форматирует результат метода ispsfl"""
+        try:
+            result = {
+                'status': 'success',
+                'method': 'ispsfl',
+                'format': format,
+                'data': data
+            }
+            
+            if format == 1:  # группированные данные
+                result['result'] = data.get('result', {})
+            else:  # негруппированные данные
+                result['result'] = data.get('result', {})
+            
+            return result
+        except Exception as e:
+            logger.error(f"[FSSP] Ошибка форматирования результата ispsfl: {e}")
+            return {
+                'status': 'error',
+                'method': 'ispsfl',
                 'message': f'Ошибка форматирования: {str(e)}'
             }
     
@@ -141,14 +288,15 @@ class FSSPAPIClient:
         try:
             session = await self._get_session()
             
-            headers = {
-                'Authorization': f'Bearer {self.api_key}',
-                'Content-Type': 'application/json'
+            # Тестируем простой запрос
+            params = {
+                'inn': '7728898960',  # Тестовый ИНН
+                'key': self.api_key
             }
             
             async with session.get(
-                f"{self.base_url}/status",
-                headers=headers
+                f"{self.base_url}/isps",
+                params=params
             ) as response:
                 return response.status == 200
                 

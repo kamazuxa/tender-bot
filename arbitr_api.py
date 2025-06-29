@@ -14,6 +14,22 @@ logger = logging.getLogger(__name__)
 class DamiaArbitrAPI:
     """Класс для работы с DaMIA API для арбитражных дел"""
     
+    # Константы для ролей в арбитражных делах
+    ROLE_PLAINTIFF = '1'      # Истец
+    ROLE_DEFENDANT = '2'      # Ответчик
+    ROLE_THIRD_PARTY = '3'    # Третье лицо
+    ROLE_OTHER = '4'          # Иное лицо
+    
+    # Константы для типов арбитражных дел
+    TYPE_ADMINISTRATIVE = '1'  # Административное
+    TYPE_CIVIL = '2'          # Гражданское
+    TYPE_BANKRUPTCY = '3'     # Банкротное
+    
+    # Константы для статусов арбитражных дел
+    STATUS_COMPLETED = '1'     # Рассмотрение дела завершено
+    STATUS_FIRST_INSTANCE = '2'  # Рассматривается в первой инстанции
+    STATUS_APPEAL = '3'       # Рассматривается в апелляционной/кассационной/надзорной инстанциях
+    
     def __init__(self):
         self.api_key = DAMIA_ARBITR_API_KEY
         self.base_url = DAMIA_ARBITR_BASE_URL
@@ -23,17 +39,13 @@ class DamiaArbitrAPI:
     
     async def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
         """Выполняет запрос к API с повторными попытками"""
-        headers = {
-            "User-Agent": "TenderBot/1.0",
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-        }
+        # API-Арбитражи не требует специальных заголовков, только параметры
         
         for attempt in range(self.max_retries):
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     url = f"{self.base_url}/{endpoint}"
-                    response = await client.get(url, headers=headers, params=params)
+                    response = await client.get(url, params=params)
                     
                     if response.status_code == 200:
                         return response.json()
@@ -81,16 +93,31 @@ class DamiaArbitrAPI:
         }
     
     async def get_arbitrage_cases_by_inn(self, inn: str, role: Optional[str] = None, case_type: Optional[str] = None, 
-                                       status: Optional[str] = None, format_type: int = 1) -> Dict:
+                                       status: Optional[str] = None, format_type: int = 1, exact: bool = True,
+                                       from_date: Optional[str] = None, to_date: Optional[str] = None,
+                                       page: int = 1) -> Dict:
         """
         Получение информации об участиях в арбитражных делах по ИНН
         Метод: dela
+        
+        Параметры:
+        - inn: ИНН, ОГРН, название организации или ФИО
+        - role: Роль лица (1-Истец, 2-Ответчик, 3-Третье лицо, 4-Иное лицо)
+        - case_type: Тип дела (1-Административное, 2-Гражданское, 3-Банкротное)
+        - status: Статус дела (1-Завершено, 2-Первая инстанция, 3-Апелляция/Кассация)
+        - format_type: Формат данных (1-группированные, 2-негруппированные)
+        - exact: Точное совпадение (True/False)
+        - from_date: Дата начала поиска (YYYY-MM-DD)
+        - to_date: Дата окончания поиска (YYYY-MM-DD)
+        - page: Номер страницы
         """
         logger.info(f"[arbitr] Поиск арбитражных дел для ИНН: {inn}")
         
         params = {
             'q': inn,
             'format': format_type,
+            'exact': '1' if exact else '0',
+            'page': str(page),
             'key': self.api_key
         }
         
@@ -101,6 +128,10 @@ class DamiaArbitrAPI:
             params['type'] = case_type
         if status:
             params['status'] = status
+        if from_date:
+            params['from_date'] = from_date
+        if to_date:
+            params['to_date'] = to_date
         
         result = await self._make_request('dela', params)
         
@@ -126,15 +157,24 @@ class DamiaArbitrAPI:
         """
         Отслеживание событий в арбитражном деле
         Метод: delopro
+        
+        Действия:
+        - email: получать извещения об изменениях по делу на электронную почту
+        - noemail: отписаться от получения извещений об изменениях по делу на email
+        - list: получить список отслеживаемых дел
         """
         logger.info(f"[arbitr] Отслеживание арбитражного дела: {case_number}")
         
         params = {
-            'regn': case_number,
             'a': action,
             'key': self.api_key
         }
         
+        # Добавляем номер дела только если это не запрос списка
+        if action != 'list':
+            params['regn'] = case_number
+        
+        # Добавляем email если передан
         if email:
             params['email'] = email
         
@@ -142,14 +182,14 @@ class DamiaArbitrAPI:
         
         if result:
             return {
-                "case_number": case_number,
+                "case_number": case_number if action != 'list' else None,
                 "action": action,
                 "data": result,
                 "status": "success"
             }
         
         return {
-            "case_number": case_number,
+            "case_number": case_number if action != 'list' else None,
             "action": action,
             "data": None,
             "status": "failed"

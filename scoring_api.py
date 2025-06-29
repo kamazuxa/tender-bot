@@ -32,17 +32,13 @@ class DamiaScoringAPI:
     
     async def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
         """Выполняет запрос к API с повторными попытками"""
-        headers = {
-            "User-Agent": "TenderBot/1.0",
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-        }
+        # API-Скоринг не требует специальных заголовков, только параметры
         
         for attempt in range(self.max_retries):
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     url = f"{self.base_url}/{endpoint}"
-                    response = await client.get(url, headers=headers, params=params)
+                    response = await client.get(url, params=params)
                     
                     if response.status_code == 200:
                         return response.json()
@@ -84,25 +80,46 @@ class DamiaScoringAPI:
         
         result = await self._make_request('score', params)
         
-        if result:
+        if result and inn in result:
+            # Согласно документации, ответ содержит ИНН как ключ
+            score_data = result[inn]
+            
+            # Извлекаем скоринговую оценку
+            score_value = None
+            risk_level = "Неизвестно"
+            
+            if isinstance(score_data, dict):
+                # Ищем скоринговую оценку в различных полях
+                for key, value in score_data.items():
+                    if isinstance(value, (int, float)) and 0 <= value <= 1000:
+                        score_value = value
+                        break
+                
+                # Определяем уровень риска по скорингу
+                if score_value is not None:
+                    if score_value >= 800:
+                        risk_level = "Низкий"
+                    elif score_value >= 600:
+                        risk_level = "Средний"
+                    elif score_value >= 400:
+                        risk_level = "Высокий"
+                    else:
+                        risk_level = "Критический"
+            
             return {
                 "inn": inn,
                 "model": model,
-                "score": result.get('score', 0),
-                "risk_level": result.get('risk_level', 'unknown'),
-                "probability": result.get('probability', 0),
-                "factors": result.get('factors', []),
-                "raw_data": result,
+                "score": score_value,
+                "risk_level": risk_level,
+                "raw_data": score_data,
                 "status": "success"
             }
         
         return {
             "inn": inn,
             "model": model,
-            "score": 0,
-            "risk_level": "unknown",
-            "probability": 0,
-            "factors": [],
+            "score": None,
+            "risk_level": "Неизвестно",
             "raw_data": None,
             "status": "failed"
         }
@@ -121,14 +138,17 @@ class DamiaScoringAPI:
         
         result = await self._make_request('info', params)
         
-        if result:
+        if result and model in result:
+            # Согласно документации, ответ содержит модель как ключ
+            model_data = result[model]
+            
             return {
                 "model": model,
-                "name": result.get('name', ''),
-                "description": result.get('description', ''),
-                "version": result.get('version', ''),
-                "created_date": result.get('created_date'),
-                "raw_data": result,
+                "name": model_data.get('name', ''),
+                "description": model_data.get('description', ''),
+                "version": model_data.get('version', ''),
+                "created_date": model_data.get('created_date'),
+                "raw_data": model_data,
                 "status": "found"
             }
         
@@ -162,29 +182,32 @@ class DamiaScoringAPI:
         
         result = await self._make_request('fincoefs', params)
         
-        if result:
+        if result and inn in result:
+            # Согласно документации, ответ содержит ИНН как ключ
+            fin_data = result[inn]
+            
             return {
                 "inn": inn,
                 "coefficients": {
-                    "КоэфОборЗапасов": result.get('КоэфОборЗапасов'),
-                    "ПериодОборЗапасов": result.get('ПериодОборЗапасов'),
-                    "КоэфОборДЗ": result.get('КоэфОборДЗ'),
-                    "ПериодОборДЗ": result.get('ПериодОборДЗ'),
-                    "КоэфОборКЗ": result.get('КоэфОборКЗ'),
-                    "ПериодОборКЗ": result.get('ПериодОборКЗ'),
-                    "КоэфОборАктивов": result.get('КоэфОборАктивов'),
-                    "РентАктивов": result.get('РентАктивов'),
-                    "РентСК": result.get('РентСК'),
-                    "РентПродаж": result.get('РентПродаж'),
-                    "ЧистРентПродаж": result.get('ЧистРентПродаж'),
-                    "КоэфТекЛикв": result.get('КоэфТекЛикв'),
-                    "КоэфАбсЛикв": result.get('КоэфАбсЛикв'),
-                    "КоэфФинАвт": result.get('КоэфФинАвт'),
-                    "КоэфФинЗав": result.get('КоэфФинЗав'),
-                    "КоэфФинЛевер": result.get('КоэфФинЛевер')
+                    "КоэфОборЗапасов": fin_data.get('КоэфОборЗапасов'),
+                    "ПериодОборЗапасов": fin_data.get('ПериодОборЗапасов'),
+                    "КоэфОборДЗ": fin_data.get('КоэфОборДЗ'),
+                    "ПериодОборДЗ": fin_data.get('ПериодОборДЗ'),
+                    "КоэфОборКЗ": fin_data.get('КоэфОборКЗ'),
+                    "ПериодОборКЗ": fin_data.get('ПериодОборКЗ'),
+                    "КоэфОборАктивов": fin_data.get('КоэфОборАктивов'),
+                    "РентАктивов": fin_data.get('РентАктивов'),
+                    "РентСК": fin_data.get('РентСК'),
+                    "РентПродаж": fin_data.get('РентПродаж'),
+                    "ЧистРентПродаж": fin_data.get('ЧистРентПродаж'),
+                    "КоэфТекЛикв": fin_data.get('КоэфТекЛикв'),
+                    "КоэфАбсЛикв": fin_data.get('КоэфАбсЛикв'),
+                    "КоэфФинАвт": fin_data.get('КоэфФинАвт'),
+                    "КоэфФинЗав": fin_data.get('КоэфФинЗав'),
+                    "КоэфФинЛевер": fin_data.get('КоэфФинЛевер')
                 },
-                "comparison": result.get('comparison', {}),
-                "raw_data": result,
+                "comparison": fin_data.get('comparison', {}),
+                "raw_data": fin_data,
                 "status": "found"
             }
         

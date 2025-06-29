@@ -23,22 +23,22 @@ class DamiaFNSAPI:
     
     async def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
         """Выполняет запрос к API с повторными попытками"""
-        headers = {
-            "User-Agent": "TenderBot/1.0",
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-        }
+        # API-ФНС не требует специальных заголовков, только параметры
         
         for attempt in range(self.max_retries):
             try:
                 async with httpx.AsyncClient(timeout=self.timeout) as client:
                     url = f"{self.base_url}/{endpoint}"
-                    response = await client.get(url, headers=headers, params=params)
+                    response = await client.get(url, params=params)
                     
                     if response.status_code == 200:
                         return response.json()
                     elif response.status_code == 404:
                         logger.warning(f"[fns] Данные не найдены для {endpoint}: {params}")
+                        return None
+                    elif response.status_code == 403:
+                        logger.error(f"[fns] Доступ запрещен (403): {response.text}")
+                        logger.error(f"[fns] Проверьте IP-адрес в личном кабинете https://api-fns.ru")
                         return None
                     else:
                         logger.error(f"[fns] Ошибка API {endpoint}: {response.status_code} - {response.text}")
@@ -240,6 +240,100 @@ class DamiaFNSAPI:
         return {
             "passport": f"{passport_series} {passport_number}",
             "is_valid": True,
+            "status": "not_found"
+        }
+    
+    async def autocomplete(self, query: str, limit: int = 10) -> Dict:
+        """
+        Автодополнение (автоподсказка)
+        Метод: ac
+        """
+        logger.info(f"[fns] Автодополнение: {query}")
+        
+        params = {
+            'q': query,
+            'key': self.api_key
+        }
+        
+        if limit:
+            params['limit'] = str(limit)
+        
+        result = await self._make_request('ac', params)
+        
+        if result:
+            return {
+                "query": query,
+                "suggestions": result.get('items', []),
+                "status": "found"
+            }
+        
+        return {
+            "query": query,
+            "suggestions": [],
+            "status": "not_found"
+        }
+    
+    async def check_account_blocks(self, inn: str) -> Dict:
+        """
+        Проверка блокировок счета
+        Метод: nalogbi
+        """
+        logger.info(f"[fns] Проверка блокировок счета: {inn}")
+        
+        params = {
+            'req': inn,
+            'key': self.api_key
+        }
+        
+        result = await self._make_request('nalogbi', params)
+        
+        if result:
+            return {
+                "inn": inn,
+                "has_blocks": result.get('has_blocks', False),
+                "blocks_count": result.get('blocks_count', 0),
+                "blocks": result.get('blocks', []),
+                "status": "found"
+            }
+        
+        return {
+            "inn": inn,
+            "has_blocks": False,
+            "blocks_count": 0,
+            "blocks": [],
+            "status": "not_found"
+        }
+    
+    async def check_individual_status(self, inn: str) -> Dict:
+        """
+        Статусы физического лица
+        Метод: fl_status
+        """
+        logger.info(f"[fns] Проверка статуса физлица: {inn}")
+        
+        params = {
+            'req': inn,
+            'key': self.api_key
+        }
+        
+        result = await self._make_request('fl_status', params)
+        
+        if result:
+            return {
+                "inn": inn,
+                "is_self_employed": result.get('is_self_employed', False),
+                "is_entrepreneur": result.get('is_entrepreneur', False),
+                "is_bankrupt": result.get('is_bankrupt', False),
+                "inn_invalid": result.get('inn_invalid', False),
+                "status": "found"
+            }
+        
+        return {
+            "inn": inn,
+            "is_self_employed": False,
+            "is_entrepreneur": False,
+            "is_bankrupt": False,
+            "inn_invalid": False,
             "status": "not_found"
         }
     

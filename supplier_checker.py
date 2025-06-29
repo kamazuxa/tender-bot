@@ -10,6 +10,7 @@ from damia_api import damia_supplier_api
 from arbitr_api import arbitr_api
 from fns_api import fns_api
 from scoring_api import scoring_api
+from fssp_api import fssp_client
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +119,8 @@ async def check_supplier(inn: str) -> Dict:
         # Получаем данные из всех источников
         # Используем новый API для ФНС
         fns_data = await fns_api.check_company(inn)
-        fssp_data = await damia_supplier_api.get_fssp(inn)
+        # Используем новый FSSP API
+        fssp_data = await fssp_client.get_company_proceedings(inn, format=1)
         # Используем новый API для арбитражей
         arbitr_data = await arbitr_api.get_arbitrage_cases_by_inn(inn)
         # Используем новый API для скоринга
@@ -141,16 +143,20 @@ async def check_supplier(inn: str) -> Dict:
             logger.error(f"[checker] Ошибка Скоринга для ИНН {inn}: {score_data}")
             score_data = {"score": 0, "risk_level": "error"}
         
+        # Обрабатываем данные ФССП
+        fssp_processed = process_fssp_data(fssp_data)
+        
         # Рассчитываем общий риск
         arbitr_cases = arbitr_data.get("cases", []) if isinstance(arbitr_data, dict) else []
-        risk_level = calculate_risk_level(fns_data, fssp_data, arbitr_cases, score_data)
+        risk_level = calculate_risk_level(fns_data, fssp_processed, arbitr_cases, score_data)
         
         # Формируем результат
         result = {
             "inn": inn,
             "risk": risk_level,
             "fns": fns_data,
-            "fssp": fssp_data,
+            "fssp": fssp_processed,
+            "fssp_raw": fssp_data,  # Сохраняем сырые данные ФССП
             "arbitr_count": len(arbitr_cases) if arbitr_cases else 0,
             "arbitr_cases": arbitr_cases[:5] if arbitr_cases else [],  # Первые 5 дел
             "score": score_data.get("score", 0),
@@ -158,7 +164,7 @@ async def check_supplier(inn: str) -> Dict:
             "check_date": None,  # TODO: добавить дату проверки
             "summary": {
                 "violations": fns_data.get("violations_count", 0),
-                "debts": fssp_data.get("debts_count", 0),
+                "debts": fssp_processed.get("debts_count", 0),
                 "arbitrage": len(arbitr_cases) if arbitr_cases else 0,
                 "reliability_score": score_data.get("score", 0)
             }
@@ -185,6 +191,77 @@ async def check_supplier(inn: str) -> Dict:
                 "arbitrage": 0,
                 "reliability_score": 0
             }
+        }
+
+def process_fssp_data(fssp_data: Optional[Dict]) -> Dict:
+    """
+    Обрабатывает данные ФССП для совместимости с существующей логикой
+    
+    Args:
+        fssp_data: Сырые данные от FSSP API
+        
+    Returns:
+        Обработанные данные в старом формате
+    """
+    if not fssp_data or fssp_data.get('status') != 'success':
+        return {
+            "has_debts": False,
+            "debts_count": 0,
+            "active_cases": 0,
+            "total_debt_amount": 0,
+            "status": "error"
+        }
+    
+    try:
+        # Извлекаем данные из ответа API
+        data = fssp_data.get('data', {})
+        
+        # Подсчитываем количество производств
+        proceedings_count = 0
+        active_cases = 0
+        total_debt = 0
+        
+        # Анализируем структуру данных в зависимости от формата
+        if isinstance(data, dict):
+            # Группированный формат (format=1)
+            if 'ИНН' in data:
+                # Извлекаем данные о производствах
+                proceedings = data.get('ИНН', {})
+                if isinstance(proceedings, dict):
+                    # Подсчитываем активные и завершенные производства
+                    active = proceedings.get('Активные', [])
+                    completed = proceedings.get('Завершенные', [])
+                    
+                    if isinstance(active, list):
+                        active_cases = len(active)
+                        proceedings_count += active_cases
+                    
+                    if isinstance(completed, list):
+                        proceedings_count += len(completed)
+                    
+                    # Подсчитываем общую сумму задолженности
+                    for proc in active + completed:
+                        if isinstance(proc, dict):
+                            amount = proc.get('Сумма', 0)
+                            if isinstance(amount, (int, float)):
+                                total_debt += amount
+        
+        return {
+            "has_debts": proceedings_count > 0,
+            "debts_count": proceedings_count,
+            "active_cases": active_cases,
+            "total_debt_amount": total_debt,
+            "status": "success"
+        }
+        
+    except Exception as e:
+        logger.error(f"[checker] Ошибка обработки данных ФССП: {e}")
+        return {
+            "has_debts": False,
+            "debts_count": 0,
+            "active_cases": 0,
+            "total_debt_amount": 0,
+            "status": "error"
         }
 
 def format_supplier_check_result(check_data: Dict) -> str:

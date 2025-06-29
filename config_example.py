@@ -27,6 +27,12 @@ DAMIA_ARBITR_BASE_URL = os.getenv('DAMIA_ARBITR_BASE_URL', 'https://api.damia.ru
 DAMIA_SCORING_API_KEY = os.getenv('DAMIA_SCORING_API_KEY', 'вставь_сюда_ключ_для_скоринга')
 DAMIA_SCORING_BASE_URL = os.getenv('DAMIA_SCORING_BASE_URL', 'https://damia.ru/api-scoring')
 
+# FSSP API для проверки исполнительных производств
+FSSP_API_KEY = os.getenv('FSSP_API_KEY', 'вставь_сюда_ключ_для_ФССП')
+# Примечание: FSSP API интегрирован через платформу DaMIA
+# Используйте тот же ключ, что и для других DaMIA сервисов
+FSSP_BASE_URL = os.getenv('FSSP_BASE_URL', 'https://api.fssp.ru')
+
 # OpenAI API
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', 'вставь_сюда_свой_OpenAI_ключ')
 OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')

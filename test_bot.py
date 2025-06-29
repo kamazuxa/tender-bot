@@ -487,6 +487,144 @@ async def test_supplier_check_apis():
         print(f"❌ Ошибка тестирования API проверки контрагентов: {e}")
         return False
 
+async def test_fns_api():
+    """Тестирует FNS API"""
+    print("🏛️ Тест FNS API...")
+    try:
+        from fns_api import fns_api
+        
+        # Тест проверки компании
+        test_inn = "7704627217"  # Газпром
+        result = await fns_api.check_company(test_inn)
+        
+        if result and result.get('status') in ['found', 'success']:
+            print(f"✅ Успешная проверка компании {test_inn}")
+            print(f"   Нарушения: {result.get('violations_count', 0)}")
+            print(f"   Статус: {result.get('status')}")
+        else:
+            print(f"❌ Ошибка при проверке компании {test_inn}")
+            if result:
+                print(f"   Статус: {result.get('status')}")
+                print(f"   Сообщение: {result.get('message', 'Не указано')}")
+            return False
+        
+        return True
+    except Exception as e:
+        print(f"❌ Ошибка тестирования FNS API: {e}")
+        return False
+
+async def test_fssp_api():
+    """Тестирует FSSP API"""
+    print("⚖️ Тест FSSP API...")
+    try:
+        from fssp_api import fssp_client
+        
+        # Тест соединения
+        is_connected = await fssp_client.test_connection()
+        if is_connected:
+            print("✅ Соединение с FSSP API установлено")
+        else:
+            print("❌ Не удалось установить соединение с FSSP API")
+            return False
+        
+        # Тест получения производств компании
+        test_inn = "7704627217"  # Газпром
+        result = await fssp_client.get_company_proceedings(test_inn, format=1)
+        
+        if result and result.get('status') == 'success':
+            print(f"✅ Успешное получение производств для {test_inn}")
+            print(f"   Метод: {result.get('method')}")
+            print(f"   Формат: {result.get('format')}")
+        else:
+            print(f"❌ Ошибка при получении производств для {test_inn}")
+            if result:
+                print(f"   Статус: {result.get('status')}")
+                print(f"   Сообщение: {result.get('message', 'Не указано')}")
+            return False
+        
+        return True
+    except Exception as e:
+        print(f"❌ Ошибка тестирования FSSP API: {e}")
+        return False
+
+async def test_arbitr_api():
+    """Тестирует Arbitration API"""
+    print("⚖️ Тест Arbitration API...")
+    try:
+        from arbitr_api import arbitr_api
+        
+        # Тест получения арбитражных дел
+        test_inn = "7704627217"  # Газпром
+        result = await arbitr_api.get_arbitrage_cases_by_inn(test_inn)
+        
+        if result and result.get('status') in ['found', 'success']:
+            print(f"✅ Успешное получение арбитражных дел для {test_inn}")
+            cases = result.get('cases', [])
+            print(f"   Найдено дел: {len(cases)}")
+        else:
+            print(f"❌ Ошибка при получении арбитражных дел для {test_inn}")
+            if result:
+                print(f"   Статус: {result.get('status')}")
+                print(f"   Сообщение: {result.get('message', 'Не указано')}")
+            return False
+        
+        return True
+    except Exception as e:
+        print(f"❌ Ошибка тестирования Arbitration API: {e}")
+        return False
+
+async def test_scoring_api():
+    """Тестирует Scoring API"""
+    print("📊 Тест Scoring API...")
+    try:
+        from scoring_api import scoring_api
+        
+        # Тест расчета скоринга
+        test_inn = "7704627217"  # Газпром
+        result = await scoring_api.calculate_risk_score(test_inn, '_problemCredit')
+        
+        if result and result.get('status') in ['success', 'found']:
+            print(f"✅ Успешный расчет скоринга для {test_inn}")
+            print(f"   Скоринг: {result.get('score', 'Не указан')}")
+            print(f"   Уровень риска: {result.get('risk_level', 'Не указан')}")
+        else:
+            print(f"❌ Ошибка при расчете скоринга для {test_inn}")
+            if result:
+                print(f"   Статус: {result.get('status')}")
+                print(f"   Сообщение: {result.get('message', 'Не указано')}")
+            return False
+        
+        return True
+    except Exception as e:
+        print(f"❌ Ошибка тестирования Scoring API: {e}")
+        return False
+
+async def test_supplier_checker_integration():
+    """Тестирует интеграцию всех API в supplier_checker"""
+    print("🔗 Тест интеграции supplier_checker...")
+    try:
+        from supplier_checker import check_supplier
+        
+        # Тест комплексной проверки поставщика
+        test_inn = "7704627217"  # Газпром
+        result = await check_supplier(test_inn)
+        
+        if result and result.get('inn') == test_inn:
+            print(f"✅ Успешная комплексная проверка поставщика {test_inn}")
+            print(f"   Общий риск: {result.get('risk', 'Не указан')}")
+            print(f"   ФНС: {result.get('fns', {}).get('status', 'Не указан')}")
+            print(f"   ФССП: {result.get('fssp', {}).get('status', 'Не указан')}")
+            print(f"   Арбитражи: {result.get('arbitr_count', 0)}")
+            print(f"   Скоринг: {result.get('score', 0)}")
+        else:
+            print(f"❌ Ошибка при комплексной проверке поставщика {test_inn}")
+            return False
+        
+        return True
+    except Exception as e:
+        print(f"❌ Ошибка тестирования интеграции supplier_checker: {e}")
+        return False
+
 async def run_all_tests():
     """Запускает все тесты"""
     print("🚀 Запуск комплексного тестирования TenderBot")
@@ -506,7 +644,12 @@ async def run_all_tests():
         ("Кэширование", test_caching),
         ("Полный цикл", test_full_analysis),
         ("Админ панель", test_admin_panel),
-        ("API проверки контрагентов", test_supplier_check_apis)
+        ("API проверки контрагентов", test_supplier_check_apis),
+        ("FNS API", test_fns_api),
+        ("FSSP API", test_fssp_api),
+        ("Arbitration API", test_arbitr_api),
+        ("Scoring API", test_scoring_api),
+        ("Интеграция supplier_checker", test_supplier_checker_integration)
     ]
     
     results = []

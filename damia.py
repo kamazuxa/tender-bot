@@ -11,28 +11,19 @@ class DamiaAPIError(Exception):
     """Исключение для ошибок API DaMIA"""
     pass
 
-# Retry настройки
-MAX_RETRIES = 3
-RETRY_DELAY = 1  # секунды
+# Retry настройки - ВРЕМЕННО ОТКЛЮЧЕНО
+MAX_RETRIES = 1  # Уменьшаем до 1 попытки
+RETRY_DELAY = 0  # Убираем задержки
 
 def retry_on_error(max_retries: int = MAX_RETRIES, delay: float = RETRY_DELAY):
-    """Декоратор для retry-логики"""
+    """Декоратор для retry-логики - ВРЕМЕННО УПРОЩЕН"""
     def decorator(func):
         async def wrapper(*args, **kwargs):
-            last_exception = None
-            for attempt in range(max_retries):
-                try:
-                    return await func(*args, **kwargs)
-                except Exception as e:
-                    last_exception = e
-                    logger.warning(f"[damia] Попытка {attempt + 1}/{max_retries} не удалась: {e}")
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(delay * (2 ** attempt))  # Экспоненциальная задержка
-            logger.error(f"[damia] Все попытки исчерпаны: {last_exception}")
-            if last_exception:
-                raise last_exception
-            else:
-                raise DamiaAPIError("All retry attempts failed")
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                logger.error(f"[damia] Ошибка API: {e}")
+                raise e
         return wrapper
     return decorator
 
@@ -46,13 +37,18 @@ class DamiaClient:
     async def get_zakupka(self, reg_number: str, actual: int = 1) -> Optional[Dict]:
         url = f"https://api.damia.ru/zakupki/zakupka"
         params = {"regn": reg_number, "actual": actual, "key": self.api_key}
+        logger.info(f"[damia] Отправляем запрос к {url} с параметрами: {params}")
+        
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(url, params=params)
             logger.info(f"[damia] zakupka для {reg_number}: статус {resp.status_code}")
+            logger.info(f"[damia] Заголовки ответа: {dict(resp.headers)}")
+            logger.info(f"[damia] Полный ответ: {resp.text}")
+            
             if resp.status_code == 200 and resp.text.strip():
                 try:
                     data = resp.json()
-                    logger.info(f"[damia] zakupka ответ: {data}")
+                    logger.info(f"[damia] zakupka ответ (JSON): {data}")
                     return data
                 except json.JSONDecodeError:
                     # Если ответ не JSON, проверяем на ошибки

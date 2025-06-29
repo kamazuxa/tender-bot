@@ -15,6 +15,18 @@ DAMIA_BASE_URL = os.getenv('DAMIA_BASE_URL', 'https://api.damia.ru')
 DAMIA_SUPPLIER_API_KEY = os.getenv('DAMIA_SUPPLIER_API_KEY', 'вставь_сюда_ключ_для_проверки_поставщиков')
 DAMIA_SUPPLIER_BASE_URL = os.getenv('DAMIA_SUPPLIER_BASE_URL', 'https://api.damia.ru/supplier')
 
+# DaMIA API для ФНС (ЕГРЮЛ/ЕГРИП)
+DAMIA_FNS_API_KEY = os.getenv('DAMIA_FNS_API_KEY', 'вставь_сюда_ключ_для_ФНС')
+DAMIA_FNS_BASE_URL = os.getenv('DAMIA_FNS_BASE_URL', 'https://api-fns.ru/api')
+
+# DaMIA API для арбитражных дел
+DAMIA_ARBITR_API_KEY = os.getenv('DAMIA_ARBITR_API_KEY', 'вставь_сюда_ключ_для_арбитражей')
+DAMIA_ARBITR_BASE_URL = os.getenv('DAMIA_ARBITR_BASE_URL', 'https://api.damia.ru/arb')
+
+# DaMIA API для скоринга
+DAMIA_SCORING_API_KEY = os.getenv('DAMIA_SCORING_API_KEY', 'вставь_сюда_ключ_для_скоринга')
+DAMIA_SCORING_BASE_URL = os.getenv('DAMIA_SCORING_BASE_URL', 'https://damia.ru/api-scoring')
+
 # OpenAI API
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', 'вставь_сюда_свой_OpenAI_ключ')
 OPENAI_MODEL = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')

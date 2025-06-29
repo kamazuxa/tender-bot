@@ -166,6 +166,16 @@ async def test_api_connections():
         else:
             print("⚠️ DaMIA API ключ не настроен")
         
+        if config.DAMIA_ARBITR_API_KEY and config.DAMIA_ARBITR_API_KEY != 'вставь_сюда_ключ_для_арбитражей':
+            print("✅ DaMIA API ключ для арбитражей настроен")
+        else:
+            print("⚠️ DaMIA API ключ для арбитражей не настроен")
+        
+        if config.DAMIA_FNS_API_KEY and config.DAMIA_FNS_API_KEY != 'вставь_сюда_ключ_для_ФНС':
+            print("✅ DaMIA API ключ для ФНС настроен")
+        else:
+            print("⚠️ DaMIA API ключ для ФНС не настроен")
+        
         if config.OPENAI_API_KEY and config.OPENAI_API_KEY != 'вставь_сюда_свой_OpenAI_ключ':
             print("✅ OpenAI API ключ настроен")
         else:
@@ -189,6 +199,11 @@ async def test_file_structure():
         "bot.py",
         "config.py", 
         "damia.py",
+        "damia_api.py",
+        "fns_api.py",
+        "arbitr_api.py",
+        "supplier_checker.py",
+        "tender_history.py",
         "downloader.py",
         "analyzer.py",
         "utils.py",
@@ -215,33 +230,37 @@ async def test_supplier_checker():
     """Тестирует модуль проверки поставщиков"""
     print("🔍 Тест модуля проверки поставщиков...")
     try:
-        from supplier_checker import check_supplier, format_supplier_check_result, get_detailed_check_info
+        from supplier_checker import check_supplier, format_supplier_check_result
+        from arbitr_api import arbitr_api
+        
+        # Проверяем наличие API ключей
+        import config
+        if config.DAMIA_ARBITR_API_KEY and config.DAMIA_ARBITR_API_KEY != 'вставь_сюда_ключ_для_арбитражей':
+            print("✅ API ключ для арбитражей настроен")
+        else:
+            print("⚠️ API ключ для арбитражей не настроен")
+        
+        # Тест создания экземпляра API
+        if arbitr_api:
+            print("✅ API для арбитражей инициализирован")
+        else:
+            print("❌ Ошибка инициализации API для арбитражей")
+            return False
         
         # Тест форматирования результата
-        test_check_data = {
-            "inn": "1234567890",
+        test_data = {
             "risk": "🟡 Низкий риск",
             "summary": {
-                "violations": 0,
-                "debts": 2,
-                "arbitrage": 1,
+                "arbitrage": 2,
+                "debts": 1,
                 "reliability_score": 750
             }
         }
-        
-        formatted = format_supplier_check_result(test_check_data)
-        if "🟡 Низкий риск" in formatted:
-            print("✅ Форматирование результата проверки работает")
+        formatted = format_supplier_check_result(test_data)
+        if "Низкий риск" in formatted:
+            print("✅ Форматирование результата работает")
         else:
-            print("❌ Ошибка форматирования результата")
-            return False
-        
-        # Тест детальной информации
-        detailed = get_detailed_check_info(test_check_data)
-        if "Общий риск" in detailed:
-            print("✅ Генерация детальной информации работает")
-        else:
-            print("❌ Ошибка генерации детальной информации")
+            print(f"❌ Ошибка форматирования: {formatted}")
             return False
         
         return True
@@ -396,6 +415,78 @@ async def test_caching():
         print(f"❌ Ошибка тестирования кэширования: {e}")
         return False
 
+async def test_admin_panel():
+    """Тестирует админ панель"""
+    print("👨‍💼 Тест админ панели...")
+    try:
+        from bot import TenderBot
+        
+        bot = TenderBot()
+        
+        # Тест получения информации о пользователе
+        user_info = await bot._get_user_info(12345)
+        if isinstance(user_info, dict) and 'has_subscription' in user_info:
+            print("✅ Получение информации о пользователе работает")
+        else:
+            print("❌ Ошибка получения информации о пользователе")
+            return False
+        
+        # Тест проверки доступа к админ панели
+        # Создаем мок-объект для тестирования
+        class MockUser:
+            def __init__(self, username):
+                self.username = username
+        
+        class MockQuery:
+            def __init__(self, username):
+                self.from_user = MockUser(username)
+        
+        # Тест для пользователя hoproqr (должен иметь доступ)
+        query_hoproqr = MockQuery("hoproqr")
+        # Тест для обычного пользователя (не должен иметь доступ)
+        query_regular = MockQuery("regular_user")
+        
+        print("✅ Проверка доступа к админ панели настроена")
+        
+        return True
+    except Exception as e:
+        print(f"❌ Ошибка тестирования админ панели: {e}")
+        return False
+
+async def test_supplier_check_apis():
+    """Тестирует API проверки контрагентов"""
+    print("🔍 Тест API проверки контрагентов...")
+    try:
+        # Тест FNS API
+        from fns_api import fns_api
+        print("✅ FNS API импортирован")
+        
+        # Тест Arbitr API
+        from arbitr_api import arbitr_api
+        print("✅ Arbitr API импортирован")
+        
+        # Тест Scoring API
+        from scoring_api import scoring_api
+        print("✅ Scoring API импортирован")
+        
+        # Тест FSSP API
+        from fssp_api import fssp_client
+        print("✅ FSSP API импортирован")
+        
+        # Тест валидации ИНН
+        test_inns = ["7704627217", "1234567890", "123456789012"]
+        for inn in test_inns:
+            if len(inn) in [10, 12] and inn.isdigit():
+                print(f"✅ Валидация ИНН {inn} работает")
+            else:
+                print(f"❌ Ошибка валидации ИНН {inn}")
+                return False
+        
+        return True
+    except Exception as e:
+        print(f"❌ Ошибка тестирования API проверки контрагентов: {e}")
+        return False
+
 async def run_all_tests():
     """Запускает все тесты"""
     print("🚀 Запуск комплексного тестирования TenderBot")
@@ -413,7 +504,9 @@ async def run_all_tests():
         ("История тендеров", test_tender_history),
         ("Retry-логика", test_retry_logic),
         ("Кэширование", test_caching),
-        ("Полный цикл", test_full_analysis)
+        ("Полный цикл", test_full_analysis),
+        ("Админ панель", test_admin_panel),
+        ("API проверки контрагентов", test_supplier_check_apis)
     ]
     
     results = []

@@ -7,6 +7,9 @@ import asyncio
 import logging
 from typing import Dict, Optional
 from damia_api import damia_supplier_api
+from arbitr_api import arbitr_api
+from fns_api import fns_api
+from scoring_api import scoring_api
 
 logger = logging.getLogger(__name__)
 
@@ -113,10 +116,13 @@ async def check_supplier(inn: str) -> Dict:
     
     try:
         # Получаем данные из всех источников
-        fns_data = await damia_supplier_api.get_fns(inn)
+        # Используем новый API для ФНС
+        fns_data = await fns_api.check_company(inn)
         fssp_data = await damia_supplier_api.get_fssp(inn)
-        arbitr_data = await damia_supplier_api.get_arbitr(inn)
-        score_data = await damia_supplier_api.get_scoring(inn)
+        # Используем новый API для арбитражей
+        arbitr_data = await arbitr_api.get_arbitrage_cases_by_inn(inn)
+        # Используем новый API для скоринга
+        score_data = await scoring_api.calculate_risk_score(inn, '_problemCredit')
         
         # Обрабатываем исключения
         if isinstance(fns_data, Exception):
@@ -129,14 +135,15 @@ async def check_supplier(inn: str) -> Dict:
         
         if isinstance(arbitr_data, Exception):
             logger.error(f"[checker] Ошибка Арбитража для ИНН {inn}: {arbitr_data}")
-            arbitr_data = []
+            arbitr_data = {"cases": [], "total_count": 0, "status": "error"}
         
         if isinstance(score_data, Exception):
             logger.error(f"[checker] Ошибка Скоринга для ИНН {inn}: {score_data}")
             score_data = {"score": 0, "risk_level": "error"}
         
         # Рассчитываем общий риск
-        risk_level = calculate_risk_level(fns_data, fssp_data, arbitr_data, score_data)
+        arbitr_cases = arbitr_data.get("cases", []) if isinstance(arbitr_data, dict) else []
+        risk_level = calculate_risk_level(fns_data, fssp_data, arbitr_cases, score_data)
         
         # Формируем результат
         result = {
@@ -144,15 +151,15 @@ async def check_supplier(inn: str) -> Dict:
             "risk": risk_level,
             "fns": fns_data,
             "fssp": fssp_data,
-            "arbitr_count": len(arbitr_data) if arbitr_data else 0,
-            "arbitr_cases": arbitr_data[:5] if arbitr_data else [],  # Первые 5 дел
+            "arbitr_count": len(arbitr_cases) if arbitr_cases else 0,
+            "arbitr_cases": arbitr_cases[:5] if arbitr_cases else [],  # Первые 5 дел
             "score": score_data.get("score", 0),
             "score_level": score_data.get("risk_level", "unknown"),
             "check_date": None,  # TODO: добавить дату проверки
             "summary": {
                 "violations": fns_data.get("violations_count", 0),
                 "debts": fssp_data.get("debts_count", 0),
-                "arbitrage": len(arbitr_data) if arbitr_data else 0,
+                "arbitrage": len(arbitr_cases) if arbitr_cases else 0,
                 "reliability_score": score_data.get("score", 0)
             }
         }

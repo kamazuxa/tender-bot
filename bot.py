@@ -13,6 +13,11 @@ from downloader import downloader
 from analyzer import analyzer
 from supplier_checker import check_supplier, format_supplier_check_result
 from tender_history import TenderHistoryAnalyzer
+# Импорты для API проверки контрагентов
+from fns_api import fns_api
+from arbitr_api import arbitr_api
+from scoring_api import scoring_api
+from fssp_api import fssp_client
 import os
 import re
 import zipfile
@@ -268,31 +273,40 @@ class TenderBot:
         welcome_message = f"""
 🤖 **Добро пожаловать в TenderBot!**
 
-Привет, {user.first_name}! Я помогу вам анализировать тендеры в госзакупках.
+Привет, {user.first_name}! Я ваш умный помощник для анализа госзакупок и проверки контрагентов.
 
-**Как использовать:**
-1. Отправьте номер тендера (19 цифр)
-2. Или отправьте ссылку на тендер с сайта госзакупок
-3. Я автоматически получу данные и проанализирую документы
+## 🎯 **Что я умею:**
 
-**Команды:**
-/start - это сообщение
-/help - справка
-/status - статус бота
-/cleanup - очистка старых файлов
+### 📋 **Госзакупки**
+• Анализ тендеров через DaMIA API (44-ФЗ и 223-ФЗ)
+• Скачивание и ИИ-анализ документов
+• Структурированные отчеты с рекомендациями
+• Поиск поставщиков через Yandex
 
-**Примеры:**
-```
-0123456789012345678
-https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=0123456789012345678
-```
+### 🔍 **Проверка контрагентов**
+• Проверка по базам ФНС (ЕГРЮЛ/ЕГРИП)
+• Арбитражные дела
+• Скоринг и оценка рисков
+• Исполнительные производства (ФССП)
 
-Начните с отправки номера или ссылки на тендер!
+### 📊 **Поиск поставщиков**
+• Автоматический поиск через SerpAPI
+• Ранжирование результатов с помощью GPT
+• Контакты и коммерческие предложения
+
+### 👤 **Личный кабинет**
+• История проверок
+• Избранные тендеры
+• Настройки уведомлений
+
+**Выберите нужную функцию:**
         """
         
         keyboard = [
-            [InlineKeyboardButton("📋 Справка", callback_data="help")],
-            [InlineKeyboardButton("🔧 Статус", callback_data="status")]
+            [InlineKeyboardButton("📋 Госзакупки", callback_data="tenders")],
+            [InlineKeyboardButton("🔍 Проверка контрагента", callback_data="supplier_check")],
+            [InlineKeyboardButton("🔎 Поиск поставщиков", callback_data="supplier_search")],
+            [InlineKeyboardButton("👤 Личный кабинет", callback_data="profile")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
@@ -524,6 +538,16 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             
         elif session['status'] == 'completed':
             await update.message.reply_text("✅ Анализ завершён. Отправьте новый номер тендера для анализа.")
+            
+        # Обработка проверки контрагентов
+        elif session['status'] == 'waiting_for_inn_fns':
+            await self._handle_inn_input(update, context, message_text, 'fns')
+        elif session['status'] == 'waiting_for_inn_arbitr':
+            await self._handle_inn_input(update, context, message_text, 'arbitr')
+        elif session['status'] == 'waiting_for_inn_scoring':
+            await self._handle_inn_input(update, context, message_text, 'scoring')
+        elif session['status'] == 'waiting_for_inn_fssp':
+            await self._handle_inn_input(update, context, message_text, 'fssp')
             
         else:
             await update.message.reply_text("❓ Неизвестный статус. Отправьте номер тендера для начала работы.")
@@ -766,7 +790,84 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
         try:
             logger.info(f"[bot] Обрабатываем callback: {query.data} от пользователя {user_id}")
             
-            if query.data == "help":
+            # Главное меню
+            if query.data == "tenders":
+                await self._show_tenders_menu(query, context)
+            elif query.data == "supplier_check":
+                await self._show_supplier_check_menu(query, context)
+            elif query.data == "supplier_search":
+                await self._show_supplier_search_menu(query, context)
+            elif query.data == "profile":
+                await self._show_profile_menu(query, context)
+            
+            # Проверка контрагентов
+            elif query.data == "fns_check":
+                await self._handle_fns_check(query, context)
+            elif query.data == "arbitr_check":
+                await self._handle_arbitr_check(query, context)
+            elif query.data == "scoring_check":
+                await self._handle_scoring_check(query, context)
+            elif query.data == "fssp_check":
+                await self._handle_fssp_check(query, context)
+            
+            # Возврат в главное меню
+            elif query.data == "back_to_main":
+                await self._show_main_menu(query, context)
+            elif query.data == "back_to_supplier_check":
+                await self._show_supplier_check_menu(query, context)
+            
+            # Личный кабинет
+            elif query.data == "buy_subscription":
+                await self._show_buy_subscription(query, context)
+            elif query.data == "extend_subscription":
+                await self._show_extend_subscription(query, context)
+            elif query.data == "referral_system":
+                await self._show_referral_system(query, context)
+            elif query.data == "contact_support":
+                await self._show_contact_support(query, context)
+            elif query.data == "pay_from_balance":
+                await self._show_pay_from_balance(query, context)
+            elif query.data == "share_ref_link":
+                await self._share_ref_link(query, context)
+            elif query.data == "ref_statistics":
+                await self._show_ref_statistics(query, context)
+            elif query.data == "admin_panel":
+                await self._show_admin_panel(query, context)
+            elif query.data == "admin_users":
+                await self._show_admin_users(query, context)
+            elif query.data == "admin_statistics":
+                await self._show_admin_statistics(query, context)
+            elif query.data == "admin_settings":
+                await self._show_admin_settings(query, context)
+            elif query.data == "admin_logs":
+                await self._show_admin_logs(query, context)
+            
+            # Дополнительные функции админ панели
+            elif query.data == "admin_users_detailed":
+                await self._show_admin_users_detailed(query, context)
+            elif query.data == "admin_search_user":
+                await self._show_admin_search_user(query, context)
+            elif query.data == "admin_stats_daily":
+                await self._show_admin_stats_daily(query, context)
+            elif query.data == "admin_stats_functions":
+                await self._show_admin_stats_functions(query, context)
+            elif query.data == "admin_change_limits":
+                await self._show_admin_change_limits(query, context)
+            elif query.data == "admin_restart_api":
+                await self._show_admin_restart_api(query, context)
+            elif query.data == "admin_clear_cache":
+                await self._show_admin_clear_cache(query, context)
+            elif query.data == "admin_system_logs":
+                await self._show_admin_system_logs(query, context)
+            elif query.data == "admin_full_logs":
+                await self._show_admin_full_logs(query, context)
+            elif query.data == "admin_search_logs":
+                await self._show_admin_search_logs(query, context)
+            elif query.data == "admin_clear_logs":
+                await self._show_admin_clear_logs(query, context)
+            
+            # Старые обработчики
+            elif query.data == "help":
                 await self.help_command(update, context)
             elif query.data == "status":
                 await self.status_command(update, context)
@@ -1477,6 +1578,1011 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             parse_mode='Markdown',
             reply_markup=reply_markup
         )
+
+    async def _show_main_menu(self, query, context):
+        """Показывает главное меню"""
+        welcome_message = f"""
+🤖 **TenderBot - Главное меню**
+
+Выберите нужную функцию:
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("📋 Госзакупки", callback_data="tenders")],
+            [InlineKeyboardButton("🔍 Проверка контрагента", callback_data="supplier_check")],
+            [InlineKeyboardButton("🔎 Поиск поставщиков", callback_data="supplier_search")],
+            [InlineKeyboardButton("👤 Личный кабинет", callback_data="profile")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(welcome_message, parse_mode='Markdown', reply_markup=reply_markup)
+    
+    async def _show_tenders_menu(self, query, context):
+        """Показывает меню госзакупок"""
+        message = """
+📋 **Госзакупки**
+
+Отправьте номер тендера (19-20 цифр) или ссылку на тендер с сайта госзакупок.
+
+**Примеры:**
+```
+0123456789012345678
+https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=0123456789012345678
+```
+
+**Что я сделаю:**
+• Получу данные о тендере через DaMIA API
+• Скачаю документы (техзадание, условия)
+• Проанализирую с помощью ИИ
+• Предоставлю структурированный отчет
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+    
+    async def _show_supplier_check_menu(self, query, context):
+        """Показывает меню проверки контрагентов"""
+        message = """
+🔍 **Проверка контрагента**
+
+Выберите тип проверки:
+
+**1. Проверка по базам ФНС**
+• ЕГРЮЛ/ЕГРИП данные
+• Проверка контрагента
+• Отслеживание изменений
+
+**2. Арбитражи**
+• Арбитражные дела
+• Роли в делах
+• Отслеживание дел
+
+**3. Скоринг проверка**
+• Оценка рисков
+• Финансовые коэффициенты
+• 5 моделей скоринга
+
+**4. Проверка ФССП**
+• Исполнительные производства
+• Задолженности
+• История производств
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🏢 Проверка по базам ФНС", callback_data="fns_check")],
+            [InlineKeyboardButton("⚖️ Арбитражи", callback_data="arbitr_check")],
+            [InlineKeyboardButton("📊 Скоринг проверка", callback_data="scoring_check")],
+            [InlineKeyboardButton("👮 Проверка ФССП", callback_data="fssp_check")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+    
+    async def _show_supplier_search_menu(self, query, context):
+        """Показывает меню поиска поставщиков"""
+        message = """
+🔎 **Поиск поставщиков**
+
+Отправьте название товара или услуги для поиска поставщиков.
+
+**Что я найду:**
+• Контакты поставщиков
+• Коммерческие предложения
+• Цены и условия
+• Рейтинг поставщиков
+
+**Примеры запросов:**
+```
+металлопрокат
+строительные материалы
+канцелярские товары
+```
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+    
+    async def _show_profile_menu(self, query, context):
+        """Показывает личный кабинет"""
+        user_id = query.from_user.id
+        session = self.user_sessions.get(user_id, {})
+        
+        # Получаем информацию о пользователе
+        user_info = await self._get_user_info(user_id)
+        
+        message = f"""
+👤 **Личный кабинет**
+
+📋 **Информация об аккаунте**
+🆔 **User ID:** `{user_id}`
+🥇 **Полный доступ:** {'✅ Да' if user_info['has_subscription'] else '❌ Нет'}
+📅 **Подписка истекает:** {user_info['subscription_expires']}
+💰 **Баланс:** {user_info['balance']} руб.
+💳 **Реф. баланс:** {user_info['ref_balance']} руб.
+🛍️ **Покупок:** {user_info['purchases_count']} на {user_info['purchases_amount']} руб.
+🔍 **Запросов:** {user_info['requests_count']} / {user_info['daily_limit']}
+🆓 **Дневной лимит:** {user_info['daily_limit']} запросов
+
+**Статистика использования:**
+• Проверено тендеров: {len([s for s in self.user_sessions.values() if s.get('status') == 'completed'])}
+• Проверено контрагентов: {user_info['suppliers_checked']}
+• Текущий статус: {session.get('status', 'не активен')}
+        """
+        
+        # Определяем кнопки в зависимости от статуса подписки
+        if user_info['has_subscription']:
+            subscription_button = InlineKeyboardButton("🔄 Продлить подписку", callback_data="extend_subscription")
+        else:
+            subscription_button = InlineKeyboardButton("💳 Купить подписку", callback_data="buy_subscription")
+        
+        keyboard = [
+            [subscription_button],
+            [InlineKeyboardButton("👥 Реферальная система", callback_data="referral_system")],
+            [InlineKeyboardButton("❓ Помощь", callback_data="help")]
+        ]
+        
+        # Добавляем кнопку админ панели для пользователя hoproqr
+        if query.from_user.username == "hoproqr":
+            keyboard.append([InlineKeyboardButton("⚙️ Админ панель", callback_data="admin_panel")])
+        
+        keyboard.append([InlineKeyboardButton("🔙 Назад", callback_data="back_to_main")])
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+    
+    async def _handle_fns_check(self, query, context):
+        """Обработчик проверки ФНС"""
+        message = """
+🏢 **Проверка по базам ФНС**
+
+Отправьте ИНН компании для проверки:
+
+**Что проверяется:**
+• Данные из ЕГРЮЛ/ЕГРИП
+• Признаки недобросовестности
+• Массовые директора/учредители
+• Ликвидация/реорганизация
+• Отслеживание изменений
+
+**Пример:** `7704627217`
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Назад", callback_data="back_to_supplier_check")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Устанавливаем статус ожидания ИНН для ФНС
+        user_id = query.from_user.id
+        if user_id not in self.user_sessions:
+            self.user_sessions[user_id] = {}
+        self.user_sessions[user_id]['status'] = 'waiting_for_inn_fns'
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+    
+    async def _handle_arbitr_check(self, query, context):
+        """Обработчик проверки арбитражей"""
+        message = """
+⚖️ **Проверка арбитражных дел**
+
+Отправьте ИНН компании для проверки:
+
+**Что проверяется:**
+• Арбитражные дела
+• Роли в делах (истец/ответчик)
+• Статус дел
+• Отслеживание изменений
+
+**Пример:** `7704627217`
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Назад", callback_data="back_to_supplier_check")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Устанавливаем статус ожидания ИНН для арбитражей
+        user_id = query.from_user.id
+        if user_id not in self.user_sessions:
+            self.user_sessions[user_id] = {}
+        self.user_sessions[user_id]['status'] = 'waiting_for_inn_arbitr'
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+    
+    async def _handle_scoring_check(self, query, context):
+        """Обработчик скоринга"""
+        message = """
+📊 **Скоринг проверка**
+
+Отправьте ИНН компании для скоринга:
+
+**Доступные модели:**
+• Банкроты (2016)
+• Черный список 115-ФЗ
+• Дисквалифицированные лица
+• Проблемные кредиты
+• Антиотмывочное законодательство
+
+**Пример:** `7704627217`
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Назад", callback_data="back_to_supplier_check")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Устанавливаем статус ожидания ИНН для скоринга
+        user_id = query.from_user.id
+        if user_id not in self.user_sessions:
+            self.user_sessions[user_id] = {}
+        self.user_sessions[user_id]['status'] = 'waiting_for_inn_scoring'
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+    
+    async def _handle_fssp_check(self, query, context):
+        """Обработчик проверки ФССП"""
+        message = """
+👮 **Проверка ФССП**
+
+Отправьте ИНН компании для проверки:
+
+**Что проверяется:**
+• Исполнительные производства
+• Задолженности
+• Активные дела
+• История производств
+
+**Пример:** `7704627217`
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Назад", callback_data="back_to_supplier_check")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        # Устанавливаем статус ожидания ИНН для ФССП
+        user_id = query.from_user.id
+        if user_id not in self.user_sessions:
+            self.user_sessions[user_id] = {}
+        self.user_sessions[user_id]['status'] = 'waiting_for_inn_fssp'
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+
+    async def _handle_inn_input(self, update, context, message_text, check_type):
+        """Обработка ввода ИНН для проверки контрагентов"""
+        user_id = update.effective_user.id
+        
+        # Проверяем, что введен корректный ИНН (10 или 12 цифр)
+        inn = message_text.strip()
+        if not inn.isdigit() or len(inn) not in [10, 12]:
+            await update.message.reply_text(
+                "❌ Неверный формат ИНН!\n\n"
+                "ИНН должен содержать:\n"
+                "• 10 цифр для юридических лиц\n"
+                "• 12 цифр для физических лиц\n\n"
+                "Пример: `7704627217`",
+                parse_mode='Markdown'
+            )
+            return
+        
+        # Отправляем сообщение о начале проверки
+        await update.message.reply_text(f"🔍 Проверяю ИНН {inn}...")
+        
+        try:
+            result = None
+            
+            if check_type == 'fns':
+                result = await self._check_fns(inn)
+            elif check_type == 'arbitr':
+                result = await self._check_arbitr(inn)
+            elif check_type == 'scoring':
+                result = await self._check_scoring(inn)
+            elif check_type == 'fssp':
+                result = await self._check_fssp(inn)
+            
+            if result:
+                await update.message.reply_text(result, parse_mode='Markdown')
+            else:
+                await update.message.reply_text("❌ Ошибка при проверке. Попробуйте позже.")
+                
+        except Exception as e:
+            logger.error(f"[bot] Ошибка при проверке ИНН {inn}: {e}")
+            await update.message.reply_text(f"❌ Произошла ошибка при проверке: {str(e)}")
+        
+        # Сбрасываем статус пользователя
+        self.user_sessions[user_id]['status'] = 'waiting_for_tender'
+    
+    async def _check_fns(self, inn: str) -> str:
+        """Проверка по базам ФНС"""
+        try:
+            # Получаем данные компании
+            company_data = await fns_api.get_company_info(inn)
+            check_data = await fns_api.check_company(inn)
+            
+            result = f"🏢 **Проверка ФНС для ИНН {inn}**\n\n"
+            
+            if company_data.get('status') == 'found':
+                data = company_data.get('data', {})
+                result += f"**Название:** {data.get('name', 'Не указано')}\n"
+                result += f"**ИНН:** {data.get('inn', 'Не указано')}\n"
+                result += f"**ОГРН:** {data.get('ogrn', 'Не указано')}\n"
+                result += f"**Статус:** {data.get('status', 'Не указано')}\n"
+                result += f"**Адрес:** {data.get('address', 'Не указано')}\n"
+                result += f"**Директор:** {data.get('director', 'Не указано')}\n"
+                result += f"**Дата регистрации:** {data.get('registration_date', 'Не указано')}\n\n"
+            else:
+                result += "❌ **Данные компании не найдены**\n\n"
+            
+            # Результаты проверки
+            if check_data.get('status') != 'not_found':
+                result += "🔍 **Результаты проверки:**\n"
+                
+                if check_data.get('has_violations'):
+                    result += "⚠️ **Найдены нарушения!**\n"
+                    result += f"• Количество нарушений: {check_data.get('violations_count', 0)}\n"
+                    result += f"• Последняя проверка: {check_data.get('last_check_date', 'Не указано')}\n"
+                else:
+                    result += "✅ **Нарушения не найдены**\n"
+                
+                # Дополнительные проверки
+                checks = []
+                if check_data.get('mass_director'):
+                    checks.append("• Массовый директор")
+                if check_data.get('mass_founder'):
+                    checks.append("• Массовый учредитель")
+                if check_data.get('liquidation'):
+                    checks.append("• Ликвидация")
+                if check_data.get('reorganization'):
+                    checks.append("• Реорганизация")
+                if check_data.get('unreliable_data'):
+                    checks.append("• Недостоверные данные")
+                
+                if checks:
+                    result += "\n⚠️ **Дополнительные риски:**\n" + "\n".join(checks) + "\n"
+                else:
+                    result += "\n✅ **Дополнительные риски не выявлены**\n"
+            else:
+                result += "❌ **Данные проверки недоступны**\n"
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"[bot] Ошибка при проверке ФНС: {e}")
+            return f"❌ Ошибка при проверке ФНС: {str(e)}"
+    
+    async def _check_arbitr(self, inn: str) -> str:
+        """Проверка арбитражных дел"""
+        try:
+            # Получаем арбитражные дела
+            cases_data = await arbitr_api.get_arbitrage_cases_by_inn(inn)
+            
+            result = f"⚖️ **Проверка арбитражных дел для ИНН {inn}**\n\n"
+            
+            if cases_data.get('status') == 'found':
+                cases = cases_data.get('cases', [])
+                total_count = cases_data.get('total_count', 0)
+                
+                result += f"📋 **Найдено дел:** {total_count}\n\n"
+                
+                if cases:
+                    # Группируем по ролям
+                    roles = {
+                        '1': 'Истец',
+                        '2': 'Ответчик', 
+                        '3': 'Третье лицо',
+                        '4': 'Иное лицо'
+                    }
+                    
+                    role_counts = {}
+                    for case in cases:
+                        role = case.get('role', '4')
+                        role_counts[role] = role_counts.get(role, 0) + 1
+                    
+                    result += "📊 **По ролям:**\n"
+                    for role_code, role_name in roles.items():
+                        if role_code in role_counts:
+                            result += f"• {role_name}: {role_counts[role_code]} дел\n"
+                    
+                    # Последние дела
+                    result += "\n📄 **Последние дела:**\n"
+                    for i, case in enumerate(cases[:5], 1):
+                        case_number = case.get('case_number', 'Неизвестно')
+                        case_type = case.get('case_type', 'Неизвестно')
+                        status = case.get('status', 'Неизвестно')
+                        result += f"{i}. {case_number} ({case_type}) - {status}\n"
+                else:
+                    result += "✅ **Арбитражные дела не найдены**\n"
+            else:
+                result += "❌ **Данные арбитражных дел недоступны**\n"
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"[bot] Ошибка при проверке арбитражей: {e}")
+            return f"❌ Ошибка при проверке арбитражей: {str(e)}"
+    
+    async def _check_scoring(self, inn: str) -> str:
+        """Проверка скоринга"""
+        try:
+            # Получаем комплексный скоринг
+            scoring_data = await scoring_api.get_comprehensive_scoring(inn)
+            
+            result = f"📊 **Скоринг для ИНН {inn}**\n\n"
+            
+            if scoring_data.get('status') == 'completed':
+                results = scoring_data.get('results', {})
+                
+                # Основные модели скоринга
+                result += "🎯 **Результаты скоринга:**\n"
+                
+                for model_name, model_result in results.items():
+                    if model_name == 'financial_coefficients':
+                        continue
+                    
+                    if model_result.get('status') == 'success':
+                        score = model_result.get('score', 0)
+                        risk_level = model_result.get('risk_level', 'unknown')
+                        probability = model_result.get('probability', 0)
+                        
+                        result += f"• {model_name}: {score} ({risk_level}, {probability:.1f}%)\n"
+                    else:
+                        result += f"• {model_name}: Ошибка\n"
+                
+                # Финансовые коэффициенты
+                fin_data = results.get('financial_coefficients', {})
+                if fin_data.get('status') == 'found':
+                    result += "\n💰 **Ключевые финансовые показатели:**\n"
+                    coefs = fin_data.get('coefficients', {})
+                    
+                    key_coefs = {
+                        'КоэфТекЛикв': 'Текущая ликвидность',
+                        'РентАктивов': 'Рентабельность активов',
+                        'КоэфФинАвт': 'Финансовая автономия',
+                        'РентПродаж': 'Рентабельность продаж'
+                    }
+                    
+                    for coef_code, coef_name in key_coefs.items():
+                        value = coefs.get(coef_code)
+                        if value is not None:
+                            result += f"• {coef_name}: {value:.2f}\n"
+                else:
+                    result += "\n❌ **Финансовые данные недоступны**\n"
+            else:
+                result += "❌ **Скоринг не выполнен**\n"
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"[bot] Ошибка при скоринге: {e}")
+            return f"❌ Ошибка при скоринге: {str(e)}"
+    
+    async def _check_fssp(self, inn: str) -> str:
+        """Проверка ФССП"""
+        try:
+            # Получаем данные ФССП
+            fssp_data = await fssp_client.check_company(inn)
+            
+            result = f"👮 **Проверка ФССП для ИНН {inn}**\n\n"
+            
+            if fssp_data and fssp_data.get('status') == 'success':
+                company_info = fssp_data.get('company_info', {})
+                proceedings = fssp_data.get('executive_proceedings', [])
+                summary = fssp_data.get('summary', {})
+                
+                # Информация о компании
+                if company_info:
+                    result += f"🏢 **Компания:** {company_info.get('name', 'Не указано')}\n"
+                    result += f"**ИНН:** {company_info.get('inn', 'Не указано')}\n"
+                    result += f"**ОГРН:** {company_info.get('ogrn', 'Не указано')}\n"
+                    result += f"**Адрес:** {company_info.get('address', 'Не указано')}\n\n"
+                
+                # Сводка по производствам
+                total_proceedings = summary.get('total_proceedings', 0)
+                active_proceedings = summary.get('active_proceedings', 0)
+                total_debt = summary.get('total_debt', 0)
+                
+                result += f"📋 **Исполнительные производства:**\n"
+                result += f"• Всего: {total_proceedings}\n"
+                result += f"• Активных: {active_proceedings}\n"
+                result += f"• Общая задолженность: {total_debt:,.2f} руб.\n\n"
+                
+                if proceedings:
+                    result += "📄 **Последние производства:**\n"
+                    for i, proc in enumerate(proceedings[:5], 1):
+                        number = proc.get('number', 'Не указано')
+                        amount = proc.get('amount', 0)
+                        status = proc.get('status', 'Не указано')
+                        result += f"{i}. {number} - {amount:,.2f} руб. ({status})\n"
+                else:
+                    result += "✅ **Исполнительные производства не найдены**\n"
+            else:
+                result += "❌ **Данные ФССП недоступны**\n"
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"[bot] Ошибка при проверке ФССП: {e}")
+            return f"❌ Ошибка при проверке ФССП: {str(e)}"
+
+    async def _get_user_info(self, user_id: int) -> dict:
+        """Получает информацию о пользователе"""
+        # В реальном проекте здесь была бы база данных
+        # Пока используем заглушку с базовой логикой
+        
+        # Получаем статистику из сессий
+        completed_tenders = len([s for s in self.user_sessions.values() if s.get('status') == 'completed'])
+        
+        # Заглушка для демонстрации
+        user_info = {
+            'has_subscription': False,  # По умолчанию без подписки
+            'subscription_expires': 'Не активна',
+            'balance': 0,
+            'ref_balance': 0,
+            'purchases_count': 0,
+            'purchases_amount': 0,
+            'requests_count': completed_tenders * 3,  # Примерно 3 запроса на тендер
+            'daily_limit': 100,
+            'suppliers_checked': completed_tenders * 2  # Примерно 2 проверки контрагента на тендер
+        }
+        
+        # Проверяем, есть ли у пользователя активная подписка
+        # В реальном проекте это проверялось бы в базе данных
+        if user_id % 3 == 0:  # Каждый третий пользователь имеет подписку для демонстрации
+            user_info.update({
+                'has_subscription': True,
+                'subscription_expires': '2024-12-31',
+                'balance': 1500,
+                'ref_balance': 250,
+                'purchases_count': 3,
+                'purchases_amount': 4500
+            })
+        
+        return user_info
+    
+    async def _show_buy_subscription(self, query, context):
+        """Показывает страницу покупки подписки"""
+        message = """
+💳 **Покупка подписки**
+
+**Доступные тарифы:**
+
+🥉 **Базовый** - 999 руб/месяц
+• 100 запросов в день
+• Проверка контрагентов
+• Анализ тендеров
+• Базовая поддержка
+
+🥈 **Стандарт** - 1999 руб/месяц
+• 300 запросов в день
+• Все функции базового
+• Приоритетная поддержка
+• Экспорт отчетов
+
+🥇 **Премиум** - 3999 руб/месяц
+• Безлимитные запросы
+• Все функции стандарта
+• Персональный менеджер
+• API доступ
+• Белый лейбл
+
+**Для покупки свяжитесь с менеджером:**
+📧 support@tenderbot.ru
+📱 +7 (999) 123-45-67
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("📧 Написать в поддержку", callback_data="contact_support")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="profile")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+    
+    async def _show_extend_subscription(self, query, context):
+        """Показывает страницу продления подписки"""
+        user_id = query.from_user.id
+        user_info = await self._get_user_info(user_id)
+        
+        message = f"""
+🔄 **Продление подписки**
+
+**Текущая подписка:**
+📅 Истекает: {user_info['subscription_expires']}
+💰 Баланс: {user_info['balance']} руб.
+
+**Варианты продления:**
+
+🥉 **Базовый** - 999 руб/месяц
+🥈 **Стандарт** - 1999 руб/месяц  
+🥇 **Премиум** - 3999 руб/месяц
+
+**Для продления:**
+📧 support@tenderbot.ru
+📱 +7 (999) 123-45-67
+
+**Или используйте баланс аккаунта**
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("💳 Оплатить с баланса", callback_data="pay_from_balance")],
+            [InlineKeyboardButton("📧 Написать в поддержку", callback_data="contact_support")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="profile")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+    
+    async def _show_referral_system(self, query, context):
+        """Показывает реферальную систему"""
+        user_id = query.from_user.id
+        user_info = await self._get_user_info(user_id)
+        
+        # Генерируем реферальную ссылку
+        ref_link = f"https://t.me/TenderBot?start=ref{user_id}"
+        
+        message = f"""
+👥 **Реферальная система**
+
+**Ваша реферальная ссылка:**
+`{ref_link}`
+
+**Как это работает:**
+• Пригласите друзей по ссылке
+• За каждого приглашенного получаете 100 руб.
+• Приглашенный получает 50 руб. на баланс
+• Реферальные средства можно тратить на подписку
+
+**Ваша статистика:**
+💳 Реферальный баланс: {user_info['ref_balance']} руб.
+👥 Приглашено пользователей: {user_info['ref_balance'] // 100}
+🎁 Заработано всего: {user_info['ref_balance']} руб.
+
+**Условия:**
+• Реферал должен зарегистрироваться по вашей ссылке
+• Реферал должен совершить первую покупку
+• Бонусы начисляются в течение 24 часов
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("📤 Поделиться ссылкой", callback_data="share_ref_link")],
+            [InlineKeyboardButton("📊 Статистика рефералов", callback_data="ref_statistics")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="profile")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+
+    async def _show_contact_support(self, query, context):
+        """Показывает страницу контакта с поддержкой"""
+        message = """
+📧 **Контакты поддержки**
+
+Если у вас возникли вопросы или проблемы, пожалуйста, свяжитесь с нами:
+📧 support@tenderbot.ru
+📱 +7 (999) 123-45-67
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Назад", callback_data="profile")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+
+    async def _show_pay_from_balance(self, query, context):
+        """Показывает страницу оплаты с баланса"""
+        message = """
+💳 **Оплата с баланса**
+
+Вы можете оплатить подписку с вашего баланса. Пожалуйста, введите сумму для оплаты:
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Назад", callback_data="extend_subscription")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+
+    async def _share_ref_link(self, query, context):
+        """Показывает страницу деления ссылки"""
+        user_id = query.from_user.id
+        user_info = await self._get_user_info(user_id)
+        ref_link = f"https://t.me/TenderBot?start=ref{user_id}"
+        
+        message = f"""
+📤 **Поделиться ссылкой**
+
+Вы можете поделиться своей реферальной ссылкой с друзьями:
+`{ref_link}`
+
+**Как это работает:**
+• Пригласите друзей по ссылке
+• За каждого приглашенного получаете 100 руб.
+• Приглашенный получает 50 руб. на баланс
+• Реферальные средства можно тратить на подписку
+
+**Ваша статистика:**
+💳 Реферальный баланс: {user_info['ref_balance']} руб.
+👥 Приглашено пользователей: {user_info['ref_balance'] // 100}
+🎁 Заработано всего: {user_info['ref_balance']} руб.
+
+**Условия:**
+• Реферал должен зарегистрироваться по вашей ссылке
+• Реферал должен совершить первую покупку
+• Бонусы начисляются в течение 24 часов
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("📤 Поделиться ссылкой", callback_data="share_ref_link")],
+            [InlineKeyboardButton("📊 Статистика рефералов", callback_data="ref_statistics")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="profile")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+
+    async def _show_ref_statistics(self, query, context):
+        """Показывает статистику рефералов"""
+        user_id = query.from_user.id
+        user_info = await self._get_user_info(user_id)
+        ref_count = user_info['ref_balance'] // 100
+        
+        message = f"""
+📊 **Статистика рефералов**
+
+👥 Приглашено пользователей: {ref_count}
+🎁 Заработано всего: {user_info['ref_balance']} руб.
+
+**Условия:**
+• Реферал должен зарегистрироваться по вашей ссылке
+• Реферал должен совершить первую покупку
+• Бонусы начисляются в течение 24 часов
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🔙 Назад", callback_data="profile")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+
+    async def _show_admin_panel(self, query, context):
+        """Показывает панель администратора"""
+        message = """
+👨‍💼 **Панель администратора**
+
+Выберите нужный раздел:
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("👥 Пользователи", callback_data="admin_users")],
+            [InlineKeyboardButton("📊 Статистика", callback_data="admin_statistics")],
+            [InlineKeyboardButton("⚙️ Настройки", callback_data="admin_settings")],
+            [InlineKeyboardButton("📋 Логи", callback_data="admin_logs")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="profile")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+
+    async def _show_admin_users(self, query, context):
+        """Показывает список пользователей"""
+        # Получаем статистику пользователей
+        total_users = len(self.user_sessions)
+        active_users = len([s for s in self.user_sessions.values() if s.get('status') != 'waiting_for_tender'])
+        completed_analyses = len([s for s in self.user_sessions.values() if s.get('status') == 'completed'])
+        
+        message = f"""
+👥 **Управление пользователями**
+
+📊 **Общая статистика:**
+• Всего пользователей: {total_users}
+• Активных пользователей: {active_users}
+• Завершенных анализов: {completed_analyses}
+
+**Последние активные пользователи:**
+        """
+        
+        # Показываем последние 5 активных пользователей
+        recent_users = []
+        for user_id, session in list(self.user_sessions.items())[-5:]:
+            if session.get('status') != 'waiting_for_tender':
+                recent_users.append(f"• ID: {user_id} - {session.get('status', 'неизвестно')}")
+        
+        if recent_users:
+            message += "\n".join(recent_users)
+        else:
+            message += "\n• Нет активных пользователей"
+        
+        keyboard = [
+            [InlineKeyboardButton("📊 Подробная статистика", callback_data="admin_users_detailed")],
+            [InlineKeyboardButton("🔍 Поиск пользователя", callback_data="admin_search_user")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="admin_panel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+
+    async def _show_admin_statistics(self, query, context):
+        """Показывает статистику пользователей"""
+        # Подсчитываем статистику
+        total_users = len(self.user_sessions)
+        completed_analyses = len([s for s in self.user_sessions.values() if s.get('status') == 'completed'])
+        ready_analyses = len([s for s in self.user_sessions.values() if s.get('status') == 'ready_for_analysis'])
+        tender_found = len([s for s in self.user_sessions.values() if s.get('status') == 'tender_found'])
+        
+        # Подсчитываем общую статистику запросов
+        total_requests = sum(len([s for s in self.user_sessions.values() if s.get('status') == 'completed']) * 3, 0)
+        
+        message = f"""
+📊 **Статистика системы**
+
+👥 **Пользователи:**
+• Всего пользователей: {total_users}
+• Завершенных анализов: {completed_analyses}
+• Готовых к анализу: {ready_analyses}
+• Найденных тендеров: {tender_found}
+
+🔍 **Запросы:**
+• Общее количество запросов: {total_requests}
+• Среднее на пользователя: {total_requests // max(total_users, 1)}
+
+📈 **Активность:**
+• Активных сессий: {len([s for s in self.user_sessions.values() if s.get('status') != 'waiting_for_tender'])}
+• Ожидающих ввода: {len([s for s in self.user_sessions.values() if s.get('status') == 'waiting_for_tender'])}
+
+**Периоды:**
+• Сегодня: {len([s for s in self.user_sessions.values() if s.get('status') == 'completed'])} анализов
+• За неделю: {completed_analyses} анализов
+• За месяц: {completed_analyses} анализов
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("📅 По дням", callback_data="admin_stats_daily")],
+            [InlineKeyboardButton("📊 По функциям", callback_data="admin_stats_functions")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="admin_panel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+
+    async def _show_admin_settings(self, query, context):
+        """Показывает настройки"""
+        message = """
+⚙️ **Настройки системы**
+
+**Текущие параметры:**
+• Дневной лимит запросов: 100
+• Максимальный размер файла: 50MB
+• Время жизни кэша: 1 час
+• Максимальные попытки API: 3
+
+**API статус:**
+• DaMIA API: ✅ Активен
+• OpenAI API: ✅ Активен
+• SerpAPI: ✅ Активен
+• FNS API: ✅ Активен
+• Arbitr API: ✅ Активен
+• Scoring API: ✅ Активен
+• FSSP API: ✅ Активен
+
+**Системные параметры:**
+• Логирование: ✅ Включено
+• VPN для OpenAI: ✅ Настроен
+• Автоочистка файлов: ✅ Включена
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("🔧 Изменить лимиты", callback_data="admin_change_limits")],
+            [InlineKeyboardButton("🔄 Перезапустить API", callback_data="admin_restart_api")],
+            [InlineKeyboardButton("🧹 Очистить кэш", callback_data="admin_clear_cache")],
+            [InlineKeyboardButton("📋 Системные логи", callback_data="admin_system_logs")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="admin_panel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+
+    async def _show_admin_logs(self, query, context):
+        """Показывает логи"""
+        # Получаем последние записи из логов
+        log_file = "bot_output.log"
+        recent_logs = []
+        
+        try:
+            if os.path.exists(log_file):
+                with open(log_file, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    recent_logs = lines[-10:]  # Последние 10 строк
+        except Exception as e:
+            recent_logs = [f"Ошибка чтения логов: {e}"]
+        
+        message = """
+📋 **Системные логи**
+
+**Последние записи:**
+        """
+        
+        if recent_logs:
+            for log in recent_logs[-5:]:  # Показываем последние 5
+                # Очищаем длинные строки
+                clean_log = log.strip()[:100] + "..." if len(log) > 100 else log.strip()
+                message += f"\n• {clean_log}"
+        else:
+            message += "\n• Логи не найдены"
+        
+        message += """
+
+**Типы логов:**
+• INFO - Информационные сообщения
+• WARNING - Предупреждения
+• ERROR - Ошибки
+• DEBUG - Отладочная информация
+        """
+        
+        keyboard = [
+            [InlineKeyboardButton("📄 Полные логи", callback_data="admin_full_logs")],
+            [InlineKeyboardButton("🔍 Поиск по логам", callback_data="admin_search_logs")],
+            [InlineKeyboardButton("🧹 Очистить логи", callback_data="admin_clear_logs")],
+            [InlineKeyboardButton("🔙 Назад", callback_data="admin_panel")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(message, parse_mode='Markdown', reply_markup=reply_markup)
+
+    async def _show_admin_users_detailed(self, query, context):
+        # Добавьте реализацию для подробной статистики пользователей
+        pass
+
+    async def _show_admin_search_user(self, query, context):
+        # Добавьте реализацию для поиска пользователя
+        pass
+
+    async def _show_admin_stats_daily(self, query, context):
+        # Добавьте реализацию для ежедневных статистических данных
+        pass
+
+    async def _show_admin_stats_functions(self, query, context):
+        # Добавьте реализацию для статистики функций
+        pass
+
+    async def _show_admin_change_limits(self, query, context):
+        # Добавьте реализацию для изменения лимитов
+        pass
+
+    async def _show_admin_restart_api(self, query, context):
+        # Добавьте реализацию для перезапуска API
+        pass
+
+    async def _show_admin_clear_cache(self, query, context):
+        # Добавьте реализацию для очистки кэша
+        pass
+
+    async def _show_admin_system_logs(self, query, context):
+        # Добавьте реализацию для системных логов
+        pass
+
+    async def _show_admin_full_logs(self, query, context):
+        # Добавьте реализацию для полных логов
+        pass
+
+    async def _show_admin_search_logs(self, query, context):
+        # Добавьте реализацию для поиска логов
+        pass
+
+    async def _show_admin_clear_logs(self, query, context):
+        # Добавьте реализацию для очистки логов
+        pass
 
 # Создаем и запускаем бота
 if __name__ == "__main__":

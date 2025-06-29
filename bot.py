@@ -2127,7 +2127,11 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                     for coef_code, coef_name in key_coefs.items():
                         value = coefs.get(coef_code)
                         if value is not None:
-                            result += f"• {coef_name}: {value:.2f}\n"
+                            # Проверяем, что value - это число
+                            if isinstance(value, (int, float)):
+                                result += f"• {coef_name}: {value:.2f}\n"
+                            else:
+                                result += f"• {coef_name}: {value}\n"
                 else:
                     result += "\n❌ **Финансовые данные недоступны**\n"
             else:
@@ -2167,7 +2171,11 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 result += f"📋 **Исполнительные производства:**\n"
                 result += f"• Всего: {total_proceedings}\n"
                 result += f"• Активных: {active_proceedings}\n"
-                result += f"• Общая задолженность: {total_debt:,.2f} руб.\n\n"
+                # Проверяем, что total_debt - это число
+                if isinstance(total_debt, (int, float)):
+                    result += f"• Общая задолженность: {total_debt:,.2f} руб.\n\n"
+                else:
+                    result += f"• Общая задолженность: {total_debt} руб.\n\n"
                 
                 if proceedings:
                     result += "📄 **Последние производства:**\n"
@@ -2175,7 +2183,11 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                         number = proc.get('number', 'Не указано')
                         amount = proc.get('amount', 0)
                         status = proc.get('status', 'Не указано')
-                        result += f"{i}. {number} - {amount:,.2f} руб. ({status})\n"
+                        # Проверяем, что amount - это число
+                        if isinstance(amount, (int, float)):
+                            result += f"{i}. {number} - {amount:,.2f} руб. ({status})\n"
+                        else:
+                            result += f"{i}. {number} - {amount} руб. ({status})\n"
                 else:
                     result += "✅ **Исполнительные производства не найдены**\n"
             else:

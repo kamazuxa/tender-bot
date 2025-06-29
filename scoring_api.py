@@ -266,7 +266,11 @@ class DamiaScoringAPI:
         
         summary = f"📊 Скоринг: {score}\n"
         summary += f"🎯 Уровень риска: {risk_level}\n"
-        summary += f"📈 Вероятность: {probability:.2f}%\n"
+        # Проверяем, что probability - это число
+        if isinstance(probability, (int, float)):
+            summary += f"📈 Вероятность: {probability:.2f}%\n"
+        else:
+            summary += f"📈 Вероятность: {probability}%\n"
         
         factors = scoring_data.get('factors', [])
         if factors:
@@ -296,7 +300,11 @@ class DamiaScoringAPI:
         for coef_code, coef_name in key_coefs.items():
             value = coefs.get(coef_code)
             if value is not None:
-                summary += f"• {coef_name}: {value:.2f}\n"
+                # Проверяем, что value - это число
+                if isinstance(value, (int, float)):
+                    summary += f"• {coef_name}: {value:.2f}\n"
+                else:
+                    summary += f"• {coef_name}: {value}\n"
         
         return summary
 

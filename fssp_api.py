@@ -293,6 +293,7 @@ class FSSPAPIClient:
             
             # Получаем исполнительные производства
             proceedings_data = await self.get_company_proceedings(inn)
+            logger.info(f"[FSSP] Результат get_company_proceedings для {inn}: {proceedings_data}")
             
             if not proceedings_data:
                 return {
@@ -305,19 +306,71 @@ class FSSPAPIClient:
                 'status': 'success',
                 'company_info': {
                     'inn': inn,
-                    'name': proceedings_data.get('company_name', 'Не указано'),
-                    'ogrn': proceedings_data.get('ogrn', 'Не указано'),
-                    'address': proceedings_data.get('address', 'Не указано')
+                    'name': 'Не указано',  # ФССП API не возвращает название компании
+                    'ogrn': 'Не указано',  # ФССП API не возвращает ОГРН
+                    'address': 'Не указано'  # ФССП API не возвращает адрес
                 },
-                'executive_proceedings': proceedings_data.get('proceedings', []),
+                'executive_proceedings': [],
                 'summary': {
-                    'total_proceedings': len(proceedings_data.get('proceedings', [])),
-                    'active_proceedings': len([p for p in proceedings_data.get('proceedings', []) 
-                                             if p.get('status') == 'Активное']),
-                    'total_debt': sum(float(p.get('amount', 0)) for p in proceedings_data.get('proceedings', [])
-                                    if isinstance(p.get('amount'), (int, float)))
+                    'total_proceedings': 0,
+                    'active_proceedings': 0,
+                    'total_debt': 0
                 }
             }
+            
+            # Обрабатываем данные о производствах
+            if proceedings_data.get('status') == 'success':
+                data = proceedings_data.get('data', {})
+                logger.info(f"[FSSP] Данные о производствах для {inn}: {data}")
+                
+                # Извлекаем информацию о производствах
+                proceedings = []
+                total_debt = 0
+                active_count = 0
+                
+                # Обрабатываем данные в зависимости от формата
+                if isinstance(data, dict):
+                    # Ищем список производств в различных полях
+                    for key, value in data.items():
+                        if isinstance(value, list) and value:
+                            proceedings = value
+                            break
+                        elif isinstance(value, dict) and 'result' in value:
+                            result_data = value['result']
+                            if isinstance(result_data, list):
+                                proceedings = result_data
+                                break
+                
+                logger.info(f"[FSSP] Найдено производств для {inn}: {len(proceedings)}")
+                
+                # Обрабатываем каждое производство
+                for proc in proceedings:
+                    if isinstance(proc, dict):
+                        proc_info = {
+                            'number': proc.get('РегНомер', 'Не указано'),
+                            'amount': proc.get('Сумма', 0),
+                            'status': proc.get('Статус', 'Не указано'),
+                            'date': proc.get('Дата', 'Не указано')
+                        }
+                        
+                        # Подсчитываем общую задолженность
+                        amount = proc.get('Сумма', 0)
+                        if isinstance(amount, (int, float)) and amount > 0:
+                            total_debt += amount
+                        
+                        # Подсчитываем активные производства
+                        status = proc.get('Статус', '').lower()
+                        if 'актив' in status or 'исполн' in status:
+                            active_count += 1
+                        
+                        proceedings.append(proc_info)
+                
+                result['executive_proceedings'] = proceedings
+                result['summary'] = {
+                    'total_proceedings': len(proceedings),
+                    'active_proceedings': active_count,
+                    'total_debt': total_debt
+                }
             
             logger.info(f"[FSSP] Проверка завершена для ИНН {inn}")
             return result

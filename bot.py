@@ -2156,12 +2156,31 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                         if value is not None:
                             # Экранируем специальные символы
                             safe_coef_name = escape_markdown(str(coef_name))
-                            # Проверяем, что value - это число
-                            if isinstance(value, (int, float)):
-                                result += f"• {safe_coef_name}: {value:.2f}\n"
+                            
+                            # Обрабатываем сложные значения (словари с данными по годам)
+                            if isinstance(value, dict):
+                                # Берем последний год или первый доступный
+                                years = sorted(value.keys(), reverse=True)
+                                if years:
+                                    latest_year = years[0]
+                                    year_data = value[latest_year]
+                                    if isinstance(year_data, dict) and 'Знач' in year_data:
+                                        display_value = year_data['Знач']
+                                        if isinstance(display_value, (int, float)):
+                                            result += f"• {safe_coef_name} ({latest_year}): {display_value:.3f}\n"
+                                        else:
+                                            result += f"• {safe_coef_name} ({latest_year}): {display_value}\n"
+                                    else:
+                                        result += f"• {safe_coef_name}: {year_data}\n"
+                                else:
+                                    result += f"• {safe_coef_name}: {value}\n"
                             else:
-                                safe_value = escape_markdown(str(value))
-                                result += f"• {safe_coef_name}: {safe_value}\n"
+                                # Проверяем, что value - это число
+                                if isinstance(value, (int, float)):
+                                    result += f"• {safe_coef_name}: {value:.3f}\n"
+                                else:
+                                    safe_value = escape_markdown(str(value))
+                                    result += f"• {safe_coef_name}: {safe_value}\n"
                 else:
                     result += "\n❌ **Финансовые данные недоступны**\n"
             else:

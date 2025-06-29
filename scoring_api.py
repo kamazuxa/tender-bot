@@ -80,9 +80,12 @@ class DamiaScoringAPI:
         
         result = await self._make_request('score', params)
         
+        logger.info(f"[scoring] Результат для модели {model}: {result}")
+        
         if result and inn in result:
             # Согласно документации, ответ содержит ИНН как ключ
             score_data = result[inn]
+            logger.info(f"[scoring] Данные скоринга для {inn}: {score_data}")
             
             # Извлекаем скоринговую оценку
             score_value = None
@@ -91,8 +94,10 @@ class DamiaScoringAPI:
             if isinstance(score_data, dict):
                 # Ищем скоринговую оценку в различных полях
                 for key, value in score_data.items():
+                    logger.info(f"[scoring] Проверяем поле {key}: {value} (тип: {type(value)})")
                     if isinstance(value, (int, float)) and 0 <= value <= 1000:
                         score_value = value
+                        logger.info(f"[scoring] Найдена скоринговая оценка: {score_value}")
                         break
                 
                 # Определяем уровень риска по скорингу
@@ -105,6 +110,8 @@ class DamiaScoringAPI:
                         risk_level = "Высокий"
                     else:
                         risk_level = "Критический"
+            else:
+                logger.warning(f"[scoring] Неожиданный тип данных: {type(score_data)}")
             
             return {
                 "inn": inn,
@@ -115,6 +122,7 @@ class DamiaScoringAPI:
                 "status": "success"
             }
         
+        logger.warning(f"[scoring] Не удалось получить данные для модели {model}")
         return {
             "inn": inn,
             "model": model,

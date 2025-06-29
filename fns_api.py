@@ -98,6 +98,7 @@ class DamiaFNSAPI:
         }
         
         result = await self._make_request('egr', params)
+        logger.info(f"[fns] Результат get_company_info для {inn}: {result}")
         
         if result:
             return {
@@ -125,6 +126,7 @@ class DamiaFNSAPI:
         }
         
         result = await self._make_request('check', params)
+        logger.info(f"[fns] Результат check_company для {inn}: {result}")
         
         if result:
             return {

@@ -29,7 +29,10 @@ def retry_on_error(max_retries: int = MAX_RETRIES, delay: float = RETRY_DELAY):
                     if attempt < max_retries - 1:
                         await asyncio.sleep(delay * (2 ** attempt))  # Экспоненциальная задержка
             logger.error(f"[damia] Все попытки исчерпаны: {last_exception}")
-            raise last_exception
+            if last_exception:
+                raise last_exception
+            else:
+                raise DamiaAPIError("All retry attempts failed")
         return wrapper
     return decorator
 
@@ -47,9 +50,18 @@ class DamiaClient:
             resp = await client.get(url, params=params)
             logger.info(f"[damia] zakupka для {reg_number}: статус {resp.status_code}")
             if resp.status_code == 200 and resp.text.strip():
-                data = resp.json()
-                logger.info(f"[damia] zakupka ответ: {data}")
-                return data
+                try:
+                    data = resp.json()
+                    logger.info(f"[damia] zakupka ответ: {data}")
+                    return data
+                except json.JSONDecodeError:
+                    # Если ответ не JSON, проверяем на ошибки
+                    response_text = resp.text.strip()
+                    logger.info(f"[damia] zakupka ответ (не JSON): {response_text}")
+                    if "Ошибка:" in response_text or "ошибка" in response_text.lower():
+                        logger.error(f"[damia] API вернул ошибку: {response_text}")
+                        raise DamiaAPIError(f"API error: {response_text}")
+                    raise DamiaAPIError(f"Invalid JSON response: {response_text}")
             else:
                 logger.info(f"[damia] zakupka пустой ответ или ошибка: {resp.text[:200]}")
         return None
@@ -62,9 +74,18 @@ class DamiaClient:
             resp = await client.get(url, params=params)
             logger.info(f"[damia] contract для {reg_number}: статус {resp.status_code}")
             if resp.status_code == 200 and resp.text.strip():
-                data = resp.json()
-                logger.info(f"[damia] contract ответ: {data}")
-                return data
+                try:
+                    data = resp.json()
+                    logger.info(f"[damia] contract ответ: {data}")
+                    return data
+                except json.JSONDecodeError:
+                    # Если ответ не JSON, проверяем на ошибки
+                    response_text = resp.text.strip()
+                    logger.info(f"[damia] contract ответ (не JSON): {response_text}")
+                    if "Ошибка:" in response_text or "ошибка" in response_text.lower():
+                        logger.error(f"[damia] API вернул ошибку: {response_text}")
+                        raise DamiaAPIError(f"API error: {response_text}")
+                    raise DamiaAPIError(f"Invalid JSON response: {response_text}")
             else:
                 logger.info(f"[damia] contract пустой ответ или ошибка: {resp.text[:200]}")
         return None

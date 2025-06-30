@@ -91,5 +91,26 @@ def main():
     print("\n--- Статистика по продукции (ОКПД2) ---")
     print(api.get_product_stats_by_okpd("19.20.21"))
 
+def get_tender_history_by_inn(inn: str) -> dict:
+    """Возвращает историю тендеров по ИНН через TenderGuruAPI."""
+    api = TenderGuruAPI(TENDERGURU_API_CODE)
+    # Используем get_winners_by_inn как наиболее подходящий метод
+    return api.get_winners_by_inn(inn)
+
+def format_tender_history(tender_data: dict) -> str:
+    """Форматирует историю тендеров для Telegram."""
+    if not tender_data or 'results' not in tender_data or not tender_data['results']:
+        return 'Нет данных по истории тендеров.'
+    tenders = tender_data['results']
+    lines = [f"🏆 История тендеров (победы): {len(tenders)}"]
+    for t in tenders[:5]:
+        name = t.get('ContractName') or t.get('name') or t.get('contract_link', '—')
+        price = t.get('Price') or t.get('price', '—')
+        date = t.get('Date') or t.get('date', '—')
+        lines.append(f"• {name} | {price} ₽ | {date}")
+    if len(tenders) > 5:
+        lines.append(f"... и ещё {len(tenders)-5} контрактов")
+    return '\n'.join(lines)
+
 if __name__ == "__main__":
     main() 

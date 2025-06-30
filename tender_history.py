@@ -16,6 +16,7 @@ import matplotlib.dates as mdates
 from io import BytesIO
 import openai
 from config import OPENAI_API_KEY
+from tenderguru_api import TenderGuruAPI, TENDERGURU_API_CODE
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +48,7 @@ class HistoricalTender:
 class TenderHistoryAnalyzer:
     """Анализатор истории похожих тендеров"""
     
-    def __init__(self, damia_client=None, openai_client=None):
-        self.damia_client = damia_client
+    def __init__(self, openai_client=None):
         self.openai_client = openai_client
         self.cache = {}
         
@@ -130,56 +130,31 @@ class TenderHistoryAnalyzer:
     
     async def search_similar_tenders(self, queries: List[str], region: str = None, 
                                    max_price: float = None, min_price: float = None) -> List[Dict]:
-        """Ищет похожие тендеры через DaMIA API"""
+        """Ищет похожие тендеры через TenderGuru API"""
         similar_tenders = []
-        
-        # Ограничиваем период поиска последними 12 месяцами
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=365)
-        
-        for query in queries[:5]:  # Ограничиваем количество запросов
+        api = TenderGuruAPI(TENDERGURU_API_CODE)
+        for query in queries[:5]:
             try:
                 logger.info(f"Поиск тендеров по запросу: {query}")
-                
-                # Используем DaMIA API для поиска тендеров
-                search_params = {
-                    'query': query,
-                    'date_from': start_date.strftime('%Y-%m-%d'),
-                    'date_to': end_date.strftime('%Y-%m-%d'),
-                    'limit': 50
-                }
-                
-                if region:
-                    search_params['region'] = region
-                
-                # Выполняем поиск через DaMIA
-                search_results = await self.damia_client.search_tenders(search_params)
-                
-                if search_results:
-                    for tender in search_results:
-                        # Фильтруем по цене если указана
-                        tender_price = tender.get('НМЦК', tender.get('nmck', 0))
-                        if tender_price:
-                            if max_price and tender_price > max_price * 1.3:
-                                continue
-                            if min_price and tender_price < min_price * 0.7:
-                                continue
-                        
-                        similar_tenders.append(tender)
-                
-                # Небольшая задержка между запросами
+                result = api.get_tenders_by_keywords(query)
+                tenders = result.get('results', [])
+                for tender in tenders:
+                    tender_price = tender.get('Price') or tender.get('price', 0)
+                    if tender_price:
+                        if max_price and tender_price > max_price * 1.3:
+                            continue
+                        if min_price and tender_price < min_price * 0.7:
+                            continue
+                    similar_tenders.append(tender)
                 await asyncio.sleep(0.5)
-                
             except Exception as e:
                 logger.error(f"Ошибка поиска по запросу '{query}': {e}")
-        
         # Убираем дубликаты по ID тендера
         unique_tenders = {}
         for tender in similar_tenders:
-            tender_id = tender.get('РегНомер', tender.get('id'))
+            tender_id = tender.get('id') or tender.get('РегНомер')
             if tender_id and tender_id not in unique_tenders:
                 unique_tenders[tender_id] = tender
-        
         logger.info(f"Найдено {len(unique_tenders)} уникальных похожих тендеров")
         return list(unique_tenders.values())
     

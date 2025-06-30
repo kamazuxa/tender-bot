@@ -53,6 +53,9 @@ import importlib
 company_handlers = importlib.import_module('handlers.company_handlers')
 analyze_handlers = importlib.import_module('handlers.analyze_handlers')
 history_handlers = importlib.import_module('handlers.history_handlers')
+from tenderguru_api import TenderGuruAPI, TENDERGURU_API_CODE, format_tender_history
+import functools
+import time
 
 # Настройка логирования
 logging.basicConfig(
@@ -503,7 +506,9 @@ class TenderBot:
                 
                 # Получаем данные тендера
                 try:
-                    tender_info = await damia_client.get_tender_info(tender_number)
+                    api = TenderGuruAPI(TENDERGURU_API_CODE)
+                    tender_info_result = api.get_tenders_by_keywords(tender_number)
+                    tender_info = tender_info_result.get('results', [{}])[0] if tender_info_result.get('results') else None
                 except Exception as e:
                     await search_message.delete()  # Удаляем промежуточное сообщение
                     error_msg = str(e)
@@ -553,7 +558,7 @@ class TenderBot:
                 # Удаляем промежуточное сообщение перед отправкой результатов
                 await search_message.delete()
                 
-                formatted_data = damia_client.format_tender_info(tender_info)
+                formatted_data = tender_info  # или реализовать свою функцию форматирования, либо использовать format_tender_history если это история
                 user_id = update.effective_user.id
                 
                 # Обновляем сессию пользователя
@@ -691,7 +696,7 @@ class TenderBot:
                 )
                 return
                 
-            formatted_data = damia_client.format_tender_info(tender_info)
+            formatted_data = tender_info  # или реализовать свою функцию форматирования, либо использовать format_tender_history если это история
             user_id = update.effective_user.id
             
             # Обновляем сессию пользователя

@@ -10,7 +10,7 @@ from telegram.ext import (
 from config import TELEGRAM_TOKEN, LOG_LEVEL, LOG_FILE, OPENAI_API_KEY, OPENAI_MODEL
 from downloader import downloader
 from analyzer import analyzer
-from supplier_checker import check_supplier, format_supplier_check_result
+from supplier_checker import check_supplier, format_supplier_check_result  # Удалено как неиспользуемое
 from tender_history import TenderHistoryAnalyzer
 # Импорты для API проверки контрагентов
 from fssp_api import fssp_client

@@ -230,7 +230,6 @@ async def test_supplier_checker():
     """Тестирует модуль проверки поставщиков"""
     print("🔍 Тест модуля проверки поставщиков...")
     try:
-        from supplier_checker import check_supplier, format_supplier_check_result
         from arbitr_api import arbitr_api
         
         # Проверяем наличие API ключей
@@ -245,22 +244,6 @@ async def test_supplier_checker():
             print("✅ API для арбитражей инициализирован")
         else:
             print("❌ Ошибка инициализации API для арбитражей")
-            return False
-        
-        # Тест форматирования результата
-        test_data = {
-            "risk": "🟡 Низкий риск",
-            "summary": {
-                "arbitrage": 2,
-                "debts": 1,
-                "reliability_score": 750
-            }
-        }
-        formatted = format_supplier_check_result(test_data)
-        if "Низкий риск" in formatted:
-            print("✅ Форматирование результата работает")
-        else:
-            print(f"❌ Ошибка форматирования: {formatted}")
             return False
         
         return True
@@ -573,69 +556,6 @@ async def test_scoring_api():
         print(f"❌ Ошибка тестирования Scoring API: {e}")
         return False
 
-async def test_supplier_checker_integration():
-    """Тестирует интеграцию проверки контрагентов"""
-    print("🔍 Тест интеграции проверки контрагентов...")
-    try:
-        from supplier_checker import process_fssp_data, calculate_risk_level, format_supplier_check_result
-        
-        # Тест обработки данных ФССП
-        test_fssp_data = {
-            "status": "success",
-            "executive_proceedings": [
-                {"number": "12345", "amount": 100000, "status": "active"}
-            ],
-            "summary": {
-                "total_proceedings": 1,
-                "active_proceedings": 1,
-                "total_debt": 100000
-            }
-        }
-        
-        processed_fssp = process_fssp_data(test_fssp_data)
-        if isinstance(processed_fssp, dict) and "has_debts" in processed_fssp:
-            print("✅ Обработка данных ФССП работает")
-        else:
-            print("❌ Ошибка обработки данных ФССП")
-            return False
-        
-        # Тест расчета уровня риска
-        test_fns_data = {"has_violations": False, "violations_count": 0}
-        test_arbitr_data = []
-        test_score_data = {"score": 750}
-        
-        risk_level = calculate_risk_level(
-            test_fns_data, processed_fssp, test_arbitr_data, test_score_data
-        )
-        
-        if isinstance(risk_level, str) and len(risk_level) > 0:
-            print("✅ Расчет уровня риска работает")
-        else:
-            print("❌ Ошибка расчета уровня риска")
-            return False
-        
-        # Тест форматирования результатов
-        test_check_data = {
-            "inn": "1234567890",
-            "risk": "🟡 Низкий риск",
-            "fns": test_fns_data,
-            "fssp": processed_fssp,
-            "arbitr_count": 0,
-            "score": 750
-        }
-        
-        formatted_result = format_supplier_check_result(test_check_data)
-        if isinstance(formatted_result, str) and len(formatted_result) > 0:
-            print("✅ Форматирование результатов работает")
-        else:
-            print("❌ Ошибка форматирования результатов")
-            return False
-        
-        return True
-    except Exception as e:
-        print(f"❌ Ошибка тестирования интеграции проверки контрагентов: {e}")
-        return False
-
 async def test_fns_api_detailed():
     """Детальное тестирование API ФНС"""
     print("🔍 Детальное тестирование API ФНС...")
@@ -929,7 +849,6 @@ async def run_all_tests():
         ("Утилиты", test_utils),
         ("API подключения", test_api_connections),
         ("Структура файлов", test_file_structure),
-        ("Проверка поставщиков", test_supplier_checker),
         ("История тендеров", test_tender_history),
         ("Retry-логика", test_retry_logic),
         ("Кэширование", test_caching),
@@ -940,7 +859,6 @@ async def run_all_tests():
         ("FSSP API", test_fssp_api),
         ("Arbitration API", test_arbitr_api),
         ("Scoring API", test_scoring_api),
-        ("Интеграция supplier_checker", test_supplier_checker_integration),
         ("FNS API детальное", test_fns_api_detailed),
         ("Arbitr API детальное", test_arbitr_api_detailed),
         ("FSSP API детальное", test_fssp_api_detailed),

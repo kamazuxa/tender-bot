@@ -97,7 +97,6 @@ tender_bot_project/
 ├── fssp_api.py           # Интеграция DaMIA FSSP
 ├── arbitr_api.py         # Интеграция DaMIA Арбитраж
 ├── email_generator.py    # Генерация писем поставщикам
-├── supplier_checker.py   # Проверка по FSSP и Арбитражу
 ├── tender_history.py     # История закупок
 ├── downloader.py         # Скачивание документов
 ├── analyzer.py           # Анализ документов

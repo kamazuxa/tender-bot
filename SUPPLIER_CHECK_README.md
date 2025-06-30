@@ -29,7 +29,6 @@ pip install httpx beautifulsoup4 python-dotenv
 ## 📁 Структура файлов
 
 - `damia_api.py` - обертка для работы с DaMIA API
-- `supplier_checker.py` - логика проверки и расчета рисков
 - `test_supplier_check.py` - тестовый скрипт
 - `config.py` - конфигурация
 

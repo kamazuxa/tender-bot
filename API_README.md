@@ -66,15 +66,6 @@ FSSP_BASE_URL = 'https://api.fssp.ru'
 
 ## 🔍 Использование в коде
 
-### Проверка поставщика
-```python
-from supplier_checker import check_supplier
-
-# Комплексная проверка поставщика
-result = await check_supplier("1234567890")
-print(result['risk'])  # Уровень риска
-```
-
 ### Поиск компаний
 ```python
 from fns_api import fns_api

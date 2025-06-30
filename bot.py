@@ -56,6 +56,7 @@ history_handlers = importlib.import_module('handlers.history_handlers')
 from tenderguru_api import TenderGuruAPI, TENDERGURU_API_CODE, format_tender_history
 import functools
 import time
+from handlers.analyze_handlers import handle_tender_card_callback
 
 # Настройка логирования
 logging.basicConfig(
@@ -1165,6 +1166,7 @@ class TenderBot:
         self.app.add_handler(CommandHandler("history", lambda update, context: history_handlers.history_handler(update, context, self)))
         self.app.add_handler(CallbackQueryHandler(self.handle_callback))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
+        self.app.add_handler(CallbackQueryHandler(handle_tender_card_callback, pattern="^(download_docs|analyze_tz|check_customer|similar_history)$"))
     
     def run(self):
         try:

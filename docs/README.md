@@ -89,25 +89,82 @@ TenderBot — это современный Telegram-бот для анализ�
 
 ```
 tender_bot_project/
-├── bot.py                # Основной бот
-├── handlers.py           # Сценарии по шагам
-├── company_profile.py    # Агрегатор профиля компании
-├── exportbase_api.py     # Интеграция ExportBase
-├── tenderguru_api.py     # Интеграция TenderGuru
-├── fssp_api.py           # Интеграция DaMIA FSSP
-├── arbitr_api.py         # Интеграция DaMIA Арбитраж
-├── email_generator.py    # Генерация писем поставщикам
-├── tender_history.py     # История закупок
-├── downloader.py         # Скачивание документов
-├── analyzer.py           # Анализ документов
-├── utils.py              # Вспомогательные функции
-├── config.py             # Конфиг
-├── requirements.txt      # Зависимости
-├── README.md             # Документация
-└── downloads/            # Скачанные файлы
+├── bot.py
+├── analyzer.py
+├── downloader.py
+├── tender_history.py
+├── company_profile.py
+├── email_generator.py
+├── keyboards.py
+├── texts.py
+├── config.py
+├── requirements.txt
+├── setup.py
+├── navigation_utils.py
+├── states.py
+│
+├── handlers/
+│   ├── analyze_handlers.py
+│   ├── company_handlers.py
+│   └── history_handlers.py
+│
+├── api/   (рекомендуется, сейчас api-модули в корне)
+│   ├── exportbase_api.py
+│   ├── tenderguru_api.py
+│   ├── fssp_api.py
+│   ├── arbitr_api.py
+│
+├── utils/
+│   ├── validators.py
+│   └── (session_store.py — если понадобится)
+│
+├── downloads/   (директория для скачанных файлов)
+│
+├── docs/   (вся документация и вспомогательные .md/.txt)
+│   ├── README.md (этот файл)
+│   ├── API_README.md
+│   ├── SUPPLIER_CHECK_README.md
+│   ├── FSSP_API_README.md
+│   ├── ADMIN_PANEL_README.md
+│   ├── NEW_FEATURES_README.md
+│   ├── TENDER_HISTORY_README.md
+│   ├── exportbase_api_doc.txt
+│   └── ...
+│
+├── examples/   (примеры конфигов)
+│   ├── config_example.py
+│   └── env_example.txt
+│
+├── .gitignore
+```
+
+## Кратко:
+- **В корне** — только основные модули, requirements.txt, setup.py, config.py
+- **handlers/** — обработчики команд и логики
+- **utils/** — утилиты и валидация
+- **api/** — интеграции с внешними сервисами (можно переместить api-модули из корня)
+- **downloads/** — временные/скачанные файлы
+- **docs/** — вся документация и справочные материалы
+- **examples/** — примеры конфигов и переменных окружения
+
+## Удалено:
+- test_bot.py, handlers.py, utils.py (устаревшие или дублирующие)
+
+## Важно:
+- Все импорты обновлены, дубликаты удалены
+- requirements.txt теперь всегда в корне
+- Структура чистая и оптимизирована для работы Copilot, Cursor и других инструментов
+
+---
+
+**Для обновления индексации используйте:**
+```
+cursor index --reset
 ```
 
 ---
+
+Если добавляете новые модули — придерживайтесь этой структуры!
 
 ## 🔑 API и настройка
 

@@ -1,0 +1,413 @@
+[{
+    "ID": "1",
+    "EtpName": "Сбербанк-АСТ -  электронная торговая площадка",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e1=1&api_code=&dtype=json"
+},{
+    "ID": "2",
+    "EtpName": "Росэлторг (roseltorg) - Единая электронная торговая площадка ",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e2=1&api_code=&dtype=json"
+},{
+    "ID": "3",
+    "EtpName": "Система электронных торгов ЗаказРф (zakazrf)",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e3=1&api_code=&dtype=json"
+},{
+    "ID": "12",
+    "EtpName": "ЭТП «Фабрикант»",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e12=1&api_code=&dtype=json"
+},{
+    "ID": "14",
+    "EtpName": "SETonline",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e14=1&api_code=&dtype=json"
+},{
+    "ID": "16",
+    "EtpName": "РТС-тендер",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e16=1&api_code=&dtype=json"
+},{
+    "ID": "17",
+    "EtpName": "Национальная электронная площадка (бывшая ЭТП ММВБ), теперь ЭТП «Фабрикант»",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e17=1&api_code=&dtype=json"
+},{
+    "ID": "18",
+    "EtpName": "Аукционный Конкурсный Дом",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e18=1&api_code=&dtype=json"
+},{
+    "ID": "19",
+    "EtpName": "Электронная торговая площадка ONLINECONTRACT (Онлайнконтракт)",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e19=1&api_code=&dtype=json"
+},{
+    "ID": "20",
+    "EtpName": "Электронная торговая площадка «ИнвестЭнергосервис»",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e20=1&api_code=&dtype=json"
+},{
+    "ID": "21",
+    "EtpName": "Международный центр электронных торгов B2B-Center",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e21=1&api_code=&dtype=json"
+},{
+    "ID": "97",
+    "EtpName": "ЭТП \"ТендерГуру\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e97=1&api_code=&dtype=json"
+},{
+    "ID": "22",
+    "EtpName": "Торговая Система «Оборонторг»",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e22=1&api_code=&dtype=json"
+},{
+    "ID": "23",
+    "EtpName": "Электронная торговая площадка ОМК",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e23=1&api_code=&dtype=json"
+},{
+    "ID": "24",
+    "EtpName": "Tender.Pro (Тендер Про)",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e24=1&api_code=&dtype=json"
+},{
+    "ID": "25",
+    "EtpName": "ЗАО «Сибирская аграрная группа»",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e25=1&api_code=&dtype=json"
+},{
+    "ID": "26",
+    "EtpName": "Закупки для коммерческих заказчиков com.sberbank-ast.ru",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e26=1&api_code=&dtype=json"
+},{
+    "ID": "27",
+    "EtpName": "Закупки ОАО «Сбербанк России»",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e27=1&api_code=&dtype=json"
+},{
+    "ID": "28",
+    "EtpName": "Автоматизированная торговая площадка trade.sberbank-ast.ru",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e28=1&api_code=&dtype=json"
+},{
+    "ID": "29",
+    "EtpName": "ОАО \"Московская теплосетевая компания\" - Электронная торговая площадка",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e29=1&api_code=&dtype=json"
+},{
+    "ID": "30",
+    "EtpName": "ТЗС Электра",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e30=1&api_code=&dtype=json"
+},{
+    "ID": "31",
+    "EtpName": "Система коммерческих торгов com.roseltorg.ru",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e31=1&api_code=&dtype=json"
+},{
+    "ID": "32",
+    "EtpName": "Торги заказчиков атомной отрасли atom.roseltorg.ru",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e32=1&api_code=&dtype=json"
+},{
+    "ID": "33",
+    "EtpName": "Экономический портал Белгородской области",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e33=1&api_code=&dtype=json"
+},{
+    "ID": "34",
+    "EtpName": "Площадка ETPRF (ЭТП РФ)",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e34=1&api_code=&dtype=json"
+},{
+    "ID": "35",
+    "EtpName": "ЭТП ОАО \"Белон\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e35=1&api_code=&dtype=json"
+},{
+    "ID": "36",
+    "EtpName": "Группа электронных площадок ОТС-тендер",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e36=1&api_code=&dtype=json"
+},{
+    "ID": "37",
+    "EtpName": "ЭТП Российский аукционный дом (РАД)",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e37=1&api_code=&dtype=json"
+},{
+    "ID": "38",
+    "EtpName": "Торговая Система \"Спецстройторг\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e38=1&api_code=&dtype=json"
+},{
+    "ID": "39",
+    "EtpName": "Торговая система \"ГазНефтеторг.ру\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e39=1&api_code=&dtype=json"
+},{
+    "ID": "40",
+    "EtpName": "ЭТП Дальневосточного Федерального Округа",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e40=1&api_code=&dtype=json"
+},{
+    "ID": "41",
+    "EtpName": "ЭТП Южного Федерального Округа",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e41=1&api_code=&dtype=json"
+},{
+    "ID": "42",
+    "EtpName": "ЭТП Приволжского Федерального Округа",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e42=1&api_code=&dtype=json"
+},{
+    "ID": "43",
+    "EtpName": "ЭТП Сибирского Федерального Округа",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e43=1&api_code=&dtype=json"
+},{
+    "ID": "44",
+    "EtpName": "ЭТП Уральского Федерального Округа",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e44=1&api_code=&dtype=json"
+},{
+    "ID": "45",
+    "EtpName": "Закупки ОАО \"Ростелеком\" на roseltorg.ru",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e45=1&api_code=&dtype=json"
+},{
+    "ID": "46",
+    "EtpName": "Электронная торговая площадка ЭТП ГПБ",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e46=1&api_code=&dtype=json"
+},{
+    "ID": "47",
+    "EtpName": "Торги Сбербанк-АСТ по 223-ФЗ",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e47=1&api_code=&dtype=json"
+},{
+    "ID": "48",
+    "EtpName": "ЭТП ООО «Коммерсантъ  КАРТОТЕКА»",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e48=1&api_code=&dtype=json"
+},{
+    "ID": "49",
+    "EtpName": "ЭТП Северсталь",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e49=1&api_code=&dtype=json"
+},{
+    "ID": "50",
+    "EtpName": "Электронная торговая площадка Тендер",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e50=1&api_code=&dtype=json"
+},{
+    "ID": "53",
+    "EtpName": "ЭТП Закупки.ру",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e53=1&api_code=&dtype=json"
+},{
+    "ID": "54",
+    "EtpName": "Торгово-закупочная площадка ОАО \"Татнефть\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e54=1&api_code=&dtype=json"
+},{
+    "ID": "55",
+    "EtpName": "ЭТП «Электронный капитал» ",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e55=1&api_code=&dtype=json"
+},{
+    "ID": "56",
+    "EtpName": "ОЭТП",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e56=1&api_code=&dtype=json"
+},{
+    "ID": "58",
+    "EtpName": "Единая система торговых процедур",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e58=1&api_code=&dtype=json"
+},{
+    "ID": "59",
+    "EtpName": "Система электронных торгов. Коммерческие закупки",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e59=1&api_code=&dtype=json"
+},{
+    "ID": "60",
+    "EtpName": "Торговая Система «ТЭК-Торг»",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e60=1&api_code=&dtype=json"
+},{
+    "ID": "63",
+    "EtpName": "ЭТП  «Закупочные и маркетинговые системы»",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e63=1&api_code=&dtype=json"
+},{
+    "ID": "65",
+    "EtpName": "ООО \"Электронная торговая площадка БЭСТ\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e65=1&api_code=&dtype=json"
+},{
+    "ID": "66",
+    "EtpName": "ЭТП ООО \"Закупочные и маркетинговые системы \"RB2B.RU\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e66=1&api_code=&dtype=json"
+},{
+    "ID": "67",
+    "EtpName": "Торговая Система \"Пикон.ру\" ",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e67=1&api_code=&dtype=json"
+},{
+    "ID": "70",
+    "EtpName": "Электронная торговая площадка ЛотЭксперт",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e70=1&api_code=&dtype=json"
+},{
+    "ID": "68",
+    "EtpName": "Электронная площадка ЗАО \"Биржа \"Санкт-Петербург\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e68=1&api_code=&dtype=json"
+},{
+    "ID": "71",
+    "EtpName": "Электронная Торговая Площадка 223",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e71=1&api_code=&dtype=json"
+},{
+    "ID": "69",
+    "EtpName": "Торговая система RHtorg",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e69=1&api_code=&dtype=json"
+},{
+    "ID": "72",
+    "EtpName": "Электронная площадка \"24тендер\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e72=1&api_code=&dtype=json"
+},{
+    "ID": "75",
+    "EtpName": "ЭТП «ОСТ»",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e75=1&api_code=&dtype=json"
+},{
+    "ID": "74",
+    "EtpName": "E-tender М.Видео",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e74=1&api_code=&dtype=json"
+},{
+    "ID": "77",
+    "EtpName": "Электронная площадка ЗАО \"Биржа \"Санкт-Петербург\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e77=1&api_code=&dtype=json"
+},{
+    "ID": "76",
+    "EtpName": "«РТС-тендер» коммерческая закупка",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e76=1&api_code=&dtype=json"
+},{
+    "ID": "78",
+    "EtpName": "ЭТП «ТЭК-Торг» секция ООО «Газпром бурение»",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e78=1&api_code=&dtype=json"
+},{
+    "ID": "80",
+    "EtpName": "Электронная площадка RFP",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e80=1&api_code=&dtype=json"
+},{
+    "ID": "81",
+    "EtpName": "ЭТП «Федерация»",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e81=1&api_code=&dtype=json"
+},{
+    "ID": "82",
+    "EtpName": "ЭТП \"Дом Закупок\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e82=1&api_code=&dtype=json"
+},{
+    "ID": "83",
+    "EtpName": "ЭЛЕКТРОННЫЙ МАГАЗИН РТС-МАРКЕТ (Закупки малого объема)",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e83=1&api_code=&dtype=json"
+},{
+    "ID": "84",
+    "EtpName": "Электронный магазин Московской области (Закупки малого объема)",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e84=1&api_code=&dtype=json"
+},{
+    "ID": "85",
+    "EtpName": "Электронная торговая площадка etpzakaz",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e85=1&api_code=&dtype=json"
+},{
+    "ID": "79",
+    "EtpName": "Портал поставщиков",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e79=1&api_code=&dtype=json"
+},{
+    "ID": "64",
+    "EtpName": "Закупки ОАО АФК \"Система\" ",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e64=1&api_code=&dtype=json"
+},{
+    "ID": "90",
+    "EtpName": "Электронная площадка Томской области",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e90=1&api_code=&dtype=json"
+},{
+    "ID": "86",
+    "EtpName": "Малые закупки Удмуртской Республики",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e86=1&api_code=&dtype=json"
+},{
+    "ID": "92",
+    "EtpName": "Автоматизированная система торгов государственного оборонного заказа (АСТ ГОЗ)",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e92=1&api_code=&dtype=json"
+},{
+    "ID": "87",
+    "EtpName": "Портал малых закупок Воронежской области",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e87=1&api_code=&dtype=json"
+},{
+    "ID": "88",
+    "EtpName": "Малые закупки Смоленской области",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e88=1&api_code=&dtype=json"
+},{
+    "ID": "89",
+    "EtpName": "Закупки малого объема Мурманской области",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e89=1&api_code=&dtype=json"
+},{
+    "ID": "94",
+    "EtpName": "Единый агрегатор торговли «Березка» ",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e94=1&api_code=&dtype=json"
+},{
+    "ID": "101",
+    "EtpName": "ЭТП Нефть Регион",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e101=1&api_code=&dtype=json"
+},{
+    "ID": "105",
+    "EtpName": "Агентство по государственному заказу Республики Татарстан. Биржевая площадка",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e105=1&api_code=&dtype=json"
+},{
+    "ID": "102",
+    "EtpName": "ЭТП Бидзаар",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e102=1&api_code=&dtype=json"
+},{
+    "ID": "104",
+    "EtpName": "Малые закупки р.Мордовия",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e104=1&api_code=&dtype=json"
+},{
+    "ID": "93",
+    "EtpName": "Малые закупки Самарской области",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e93=1&api_code=&dtype=json"
+},{
+    "ID": "103",
+    "EtpName": "Малые закупки  Калужской области",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e103=1&api_code=&dtype=json"
+},{
+    "ID": "106",
+    "EtpName": "ЭТП «Комита»",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e106=1&api_code=&dtype=json"
+},{
+    "ID": "107",
+    "EtpName": "Электронная торговая площадка – ПАО «ГЕОТЕК Сейсморазведка».",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e107=1&api_code=&dtype=json"
+},{
+    "ID": "108",
+    "EtpName": "ЭЛЕКТРОННАЯ ТОРГОВАЯ ПЛОЩАДКА ГК \"СПЕКТРУМ\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e108=1&api_code=&dtype=json"
+},{
+    "ID": "109",
+    "EtpName": "малые закупки Ярославской облости",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e109=1&api_code=&dtype=json"
+},{
+    "ID": "110",
+    "EtpName": "АвтоТрансИнфо",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e110=1&api_code=&dtype=json"
+},{
+    "ID": "111",
+    "EtpName": "RusCable.Ru",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e111=1&api_code=&dtype=json"
+},{
+    "ID": "114",
+    "EtpName": "ЭТП\" Интеллект центр\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e114=1&api_code=&dtype=json"
+},{
+    "ID": "115",
+    "EtpName": "ЭТП \"Автодор\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e115=1&api_code=&dtype=json"
+},{
+    "ID": "116",
+    "EtpName": "\"Электронный магазин закупок малого объема Петрозаводского городского округа\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e116=1&api_code=&dtype=json"
+},{
+    "ID": "118",
+    "EtpName": "Портал закупок \"Дом.ru.\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e118=1&api_code=&dtype=json"
+},{
+    "ID": "119",
+    "EtpName": "ЭТП  STI-Trade (АО «Смарт Технологии Инвест» (АО «СТИ»))",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e119=1&api_code=&dtype=json"
+},{
+    "ID": "120",
+    "EtpName": "SberB2B (СберБ2б)",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e120=1&api_code=&dtype=json"
+},{
+    "ID": "121",
+    "EtpName": "Электронная торговая площадка ООО \"Трансстроймеханизация\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e121=1&api_code=&dtype=json"
+},{
+    "ID": "123",
+    "EtpName": "ЭТП АО «Форум-групп»",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e123=1&api_code=&dtype=json"
+},{
+    "ID": "124",
+    "EtpName": "Электронная торговая площадка ПАО \"Орелстрой\"",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e124=1&api_code=&dtype=json"
+},{
+    "ID": "125",
+    "EtpName": "СТРАТЕГ-электронная торговая площадка",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e125=1&api_code=&dtype=json"
+},{
+    "ID": "126",
+    "EtpName": "Электронная торговая площадка Нефть-B2B",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e126=1&api_code=&dtype=json"
+},{
+    "ID": "127",
+    "EtpName": "Система электронных торгов VLADZAKUPKI.RU.",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e127=1&api_code=&dtype=json"
+},{
+    "ID": "95",
+    "EtpName": "Малые закупки Тверской облости",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e95=1&api_code=&dtype=json"
+},{
+    "ID": "96",
+    "EtpName": "Торговая площадка bidbe",
+    "EtpLink": "https://www.tenderguru.ru/api2.0/export?e96=1&api_code=&dtype=json"
+}]

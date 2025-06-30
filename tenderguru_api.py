@@ -112,5 +112,21 @@ def format_tender_history(tender_data: dict) -> str:
         lines.append(f"... и ещё {len(tenders)-5} контрактов")
     return '\n'.join(lines)
 
+def get_tender_by_number(tender_number: str, platform_code: Optional[str] = None) -> dict:
+    url = f"https://www.tenderguru.ru/api2.3/export"
+    params = {
+        'tend_num': tender_number,
+        'api_code': TENDERGURU_API_CODE,
+        'dtype': 'json'
+    }
+    if platform_code:
+        params[platform_code] = '1'
+    try:
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        return resp.json()
+    except Exception as e:
+        return {'error': str(e)}
+
 if __name__ == "__main__":
     main() 

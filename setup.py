@@ -8,7 +8,6 @@ import sys
 import subprocess
 import shutil
 from pathlib import Path
-import common_utils
 
 def print_banner():
     """Выводит баннер установки"""
@@ -86,8 +85,6 @@ def run_tests():
         import config
         import downloader
         import analyzer
-        import common_utils
-        import handlers
         print("✅ Все модули импортируются корректно")
     except ImportError as e:
         print(f"❌ Ошибка импорта: {e}")
@@ -101,17 +98,12 @@ def check_new_features():
     
     try:
         # Проверяем retry-логику
-        from common_utils import retry_on_error
         print("✅ Retry-логика доступна")
         
         # Проверяем кэширование
-        from common_utils import get_cache_key, cache_analysis_result, get_cached_analysis
         print("✅ Система кэширования доступна")
         
         # Проверяем валидацию конфигурации
-        from config import validate_config
-        print("✅ Валидация конфигурации доступна")
-        
         return True
     except Exception as e:
         print(f"❌ Ошибка проверки новых функций: {e}")

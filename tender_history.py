@@ -47,7 +47,7 @@ class HistoricalTender:
 class TenderHistoryAnalyzer:
     """Анализатор истории похожих тендеров"""
     
-    def __init__(self, damia_client, openai_client=None):
+    def __init__(self, damia_client=None, openai_client=None):
         self.damia_client = damia_client
         self.openai_client = openai_client
         self.cache = {}

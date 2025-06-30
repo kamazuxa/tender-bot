@@ -4,7 +4,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 from keyboards import history_keyboard, back_keyboard, main_menu_keyboard
 from config import TENDERGURU_API_CODE
-from common_utils import handle_navigation_buttons
+from navigation_utils import handle_navigation_buttons
 from bot import bot
 
 # TODO: реализовать обработчики истории закупок, интеграцию с FSM и UX 

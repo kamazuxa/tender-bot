@@ -5,7 +5,7 @@ from telegram.ext import ContextTypes
 from keyboards import analyze_keyboard, back_keyboard, main_menu_keyboard
 from utils.validators import extract_tender_number
 from config import TENDERGURU_API_CODE
-from common_utils import handle_navigation_buttons
+from navigation_utils import handle_navigation_buttons
 from bot import bot
 
 async def analyze_tender_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):

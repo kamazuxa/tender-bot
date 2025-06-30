@@ -5,7 +5,7 @@ from telegram.ext import ContextTypes
 from keyboards import supplier_keyboard, back_keyboard, main_menu_keyboard
 from utils.validators import is_valid_inn
 import asyncio
-from common_utils import handle_navigation_buttons
+from navigation_utils import handle_navigation_buttons
 from bot import bot
 
 # TODO: реализовать обработчики проверки компании, интеграцию с FSM и UX 
@@ -28,7 +28,7 @@ async def check_company_handler(update: Update, context: ContextTypes.DEFAULT_TY
     profile = await loop.run_in_executor(None, build_company_profile, inn)
     await message.reply_text(profile, parse_mode="Markdown", reply_markup=main_menu_keyboard)
     # Обработка кнопок навигации
-    if handle_navigation_buttons(update, bot.user_sessions, main_menu_keyboard):
+    if handle_navigation_buttons(update, main_menu_keyboard, bot):
         return
     # Обработка кнопок 'Назад' и 'В главное меню'
     # ... удалено ... 

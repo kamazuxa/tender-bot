@@ -9,6 +9,7 @@ from telegram.ext import ContextTypes
 from downloader import downloader
 from common_utils import validate_user_session, handle_session_error
 from utils.validators import extract_tender_number
+from navigation_utils import handle_navigation_buttons
 
 logger = logging.getLogger(__name__)
 

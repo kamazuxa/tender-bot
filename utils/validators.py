@@ -1,5 +1,6 @@
 import re
 from typing import Optional, Tuple
+from urllib.parse import urlparse, parse_qs
 
 STOPWORDS = [
     'тендер', 'закупка', 'госзакупка', 'государственный', 'лот', 'номер', 'поиск',
@@ -173,6 +174,63 @@ def extract_tender_number_and_platform(url: str) -> Tuple[Optional[str], Optiona
         return m.group(1), None
     return None, None
 
+def extract_tender_info_from_url(url: str) -> Optional[dict]:
+    url = url.strip()
+    domain = urlparse(url).netloc.lower()
+    # Sberbank-AST
+    if "sberbank-ast.ru" in domain:
+        m = re.search(r"PurchaseId=(\d+)", url)
+        if m:
+            return {"reg_number": m.group(1), "source": "sberbank-ast"}
+        m = re.search(r"tenderId=(\d+)", url)
+        if m:
+            return {"reg_number": m.group(1), "source": "sberbank-ast"}
+    # Roseltorg
+    if "roseltorg.ru" in domain:
+        m = re.search(r"noticeId=(\d+)", url)
+        if m:
+            return {"reg_number": m.group(1), "source": "roseltorg"}
+    # B2B-Center
+    if "b2b-center.ru" in domain:
+        m = re.search(r"tender/(\d+)", url)
+        if m:
+            return {"reg_number": m.group(1), "source": "b2b-center"}
+    # ETP-ETS
+    if "etp-ets.ru" in domain:
+        m = re.search(r"tenderId=(\d+)", url)
+        if m:
+            return {"reg_number": m.group(1), "source": "etp-ets"}
+    # GazNefteTrade
+    if "gazneftetrade.ru" in domain:
+        m = re.search(r"tender/(\d+)", url)
+        if m:
+            return {"reg_number": m.group(1), "source": "gazneftetrade"}
+    # Zakupki.gov.ru
+    if "zakupki.gov.ru" in domain:
+        m = re.search(r"regNumber=(\d{19,20})", url)
+        if m:
+            return {"reg_number": m.group(1), "source": "zakupki.gov.ru"}
+    # RTS-tender
+    if "rts-tender.ru" in domain:
+        m = re.search(r"tender/(\d+)", url)
+        if m:
+            return {"reg_number": m.group(1), "source": "rts-tender"}
+    # Fabrikant
+    if "fabrikant.ru" in domain:
+        m = re.search(r"purchase/view/(\d+)", url)
+        if m:
+            return {"reg_number": m.group(1), "source": "fabrikant"}
+    # Tektorg
+    if "tektorg.ru" in domain:
+        m = re.search(r"procedures/(\d+)", url)
+        if m:
+            return {"reg_number": m.group(1), "source": "tektorg"}
+    # Universal fallback: ищем 19-20 цифр подряд (госномер)
+    m = re.search(r"\b(\d{19,20})\b", url)
+    if m:
+        return {"reg_number": m.group(1), "source": None}
+    return None
+
 def _test_extract_tender_number_from_url_or_text():
     assert extract_tender_number_from_url_or_text('https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=0123456789012345678') == '0123456789012345678'
     assert extract_tender_number_from_url_or_text('https://www.sberbank-ast.ru/purchaseList/procedure/public/procedure/view.html?tid=12345678&tenderId=87654321') == '87654321'
@@ -194,5 +252,26 @@ def _test_extract_tender_number_and_platform():
     print('extract_tender_number_and_platform: OK')
 
 if __name__ == "__main__":
-    _test_extract_tender_number_from_url_or_text()
-    _test_extract_tender_number_and_platform() 
+    # Sberbank-AST
+    assert extract_tender_info_from_url("https://www.sberbank-ast.ru/purchaseList/procedureView.html?PurchaseId=123456789") == {"reg_number": "123456789", "source": "sberbank-ast"}
+    # Roseltorg
+    assert extract_tender_info_from_url("https://www.roseltorg.ru/procedure/notice/view?noticeId=987654321") == {"reg_number": "987654321", "source": "roseltorg"}
+    # B2B-Center
+    assert extract_tender_info_from_url("https://www.b2b-center.ru/tender/5555555") == {"reg_number": "5555555", "source": "b2b-center"}
+    # ETP-ETS
+    assert extract_tender_info_from_url("https://www.etp-ets.ru/procedure/view?tid=1&tenderId=2222222") == {"reg_number": "2222222", "source": "etp-ets"}
+    # GazNefteTrade
+    assert extract_tender_info_from_url("https://www.gazneftetrade.ru/tender/3333333") == {"reg_number": "3333333", "source": "gazneftetrade"}
+    # Zakupki.gov.ru
+    assert extract_tender_info_from_url("https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=0123456789012345678") == {"reg_number": "0123456789012345678", "source": "zakupki.gov.ru"}
+    # RTS-tender
+    assert extract_tender_info_from_url("https://www.rts-tender.ru/tender/4444444") == {"reg_number": "4444444", "source": "rts-tender"}
+    # Fabrikant
+    assert extract_tender_info_from_url("https://www.fabrikant.ru/purchase/view/6666666") == {"reg_number": "6666666", "source": "fabrikant"}
+    # Tektorg
+    assert extract_tender_info_from_url("https://www.tektorg.ru/procedures/7777777") == {"reg_number": "7777777", "source": "tektorg"}
+    # Fallback (19-20 цифр)
+    assert extract_tender_info_from_url("https://example.com/01234567890123456789") == {"reg_number": "01234567890123456789", "source": None}
+    # Некорректная ссылка
+    assert extract_tender_info_from_url("https://example.com/abc") is None
+    print("All extract_tender_info_from_url tests passed!") 

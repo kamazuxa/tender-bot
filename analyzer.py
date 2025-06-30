@@ -1,5 +1,5 @@
 import logging
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO)  # Удалено - дублируется в bot.py
 logger = logging.getLogger(__name__)
 print("[analyzer] analyzer.py импортирован")
 import asyncio

@@ -57,6 +57,7 @@ from tenderguru_api import TenderGuruAPI, TENDERGURU_API_CODE, format_tender_his
 import functools
 import time
 from handlers.analyze_handlers import handle_tender_card_callback
+from handlers.history_handlers import analyze_found_tender_callback
 
 # Настройка логирования
 logging.basicConfig(
@@ -917,6 +918,7 @@ class TenderBot:
         await query.answer()
         data = query.data
         session = self.user_sessions.get(user_id, {})
+        logger.info(f"[handle_callback] data={data}, user_id={user_id}, session={session}")
         # FSM: обновляем state в зависимости от действия
         if data == BACK_CB:
             session['state'] = BotState.MAIN_MENU
@@ -943,7 +945,7 @@ class TenderBot:
             session['state'] = BotState.LOCKED
             await self._show_locked_menu(query, context)
         else:
-            await query.edit_message_text("❓ Неизвестная команда.", reply_markup=main_keyboard)
+            await query.edit_message_text("Неизвестная команда.")
 
     async def _show_main_menu(self, query, context):
         try:
@@ -1167,6 +1169,25 @@ class TenderBot:
         self.app.add_handler(CallbackQueryHandler(self.handle_callback))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
         self.app.add_handler(CallbackQueryHandler(handle_tender_card_callback, pattern="^(download_docs|analyze_tz|check_customer|similar_history)$"))
+        self.app.add_handler(CallbackQueryHandler(analyze_found_tender_callback, pattern=r"^analyze_found_tender:"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('products_page'), pattern=r"^products_page_"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('documents_page'), pattern=r"^documents_page_"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('download'), pattern=r"^download_"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('show_tenders'), pattern=r"^show_tenders$"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('export_excel'), pattern=r"^export_excel$"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('subscribe_selection'), pattern=r"^subscribe_selection$"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('assess_reliability'), pattern=r"^assess_reliability$"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('show_contacts'), pattern=r"^show_contacts$"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('show_tender_history'), pattern=r"^show_tender_history$"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('show_analytics'), pattern=r"^show_analytics$"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('download_analytics_excel'), pattern=r"^download_analytics_excel$"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('setup_notifications'), pattern=r"^setup_notifications$"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('faq'), pattern=r"^faq$"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('contact_support'), pattern=r"^contact_support$"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('find_suppliers'), pattern=r"^find_suppliers$"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('check_risks'), pattern=r"^check_risks$"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('pay_from_balance'), pattern=r"^pay_from_balance$"))
+        self.app.add_handler(CallbackQueryHandler(generic_callback_handler_factory('profile'), pattern=r"^profile$"))
     
     def run(self):
         try:
@@ -2390,6 +2411,15 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 "Привет! Я TenderBot – анализирую тендеры, проверяю компании и нахожу похожие закупки.\n\nВыберите нужный раздел или отправьте номер тендера / ИНН.",
                 reply_markup=main_keyboard
             )
+
+def generic_callback_handler_factory(pattern_name):
+    async def handler(update, context):
+        logger = logging.getLogger(__name__)
+        query = update.callback_query
+        logger.info(f"[generic_callback_handler] pattern={pattern_name}, data={getattr(query, 'data', None)}, user_id={getattr(getattr(query, 'from_user', None), 'id', None)}")
+        await query.answer()
+        await query.edit_message_text(f"⚙️ Функция '{pattern_name}' в разработке.")
+    return handler
 
 # Создаем и запускаем бота
 if __name__ == "__main__":

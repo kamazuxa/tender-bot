@@ -7,8 +7,6 @@ load_dotenv()
 # Telegram Bot Token
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN', 'вставь_сюда_свой_токен')
 
-# DaMIA API
-DAMIA_API_KEY = os.getenv('DAMIA_API_KEY', 'вставь_сюда_свой_API_ключ')
 DAMIA_BASE_URL = os.getenv('DAMIA_BASE_URL', 'https://api.damia.ru')
 
 # DaMIA API для проверки поставщиков

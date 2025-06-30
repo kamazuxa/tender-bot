@@ -7,7 +7,7 @@ from typing import Dict, Any
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from downloader import downloader
-from utils import validate_user_session, handle_session_error
+from common_utils import validate_user_session, handle_session_error
 from utils.validators import extract_tender_number
 
 logger = logging.getLogger(__name__)

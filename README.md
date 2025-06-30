@@ -115,7 +115,6 @@ tender_bot_project/
 **Только нужные ключи:**
 - `TELEGRAM_TOKEN` — токен Telegram-бота
 - `EXPORTBASE_API_KEY` — ключ ExportBase (https://export-base.ru)
-- `DAMIA_API_KEY` — ключ DaMIA (https://damia.ru) — только для FSSP и Арбитража
 - `TENDERGURU_API_KEY` — ключ TenderGuru (если требуется)
 
 **Установка:**

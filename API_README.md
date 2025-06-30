@@ -7,10 +7,7 @@ TenderBot использует несколько API сервисов от DaMI
 В файле `config.py` настройте следующие переменные:
 
 ```python
-# Основной API для закупок
-DAMIA_API_KEY = 'ваш_ключ_для_закупок'
-
-# API для проверки поставщиков (ФНС)
+# DaMIA API для проверки поставщиков (ФНС)
 DAMIA_SUPPLIER_API_KEY = 'ваш_ключ_для_проверки_поставщиков'
 DAMIA_SUPPLIER_BASE_URL = 'https://api-fns.ru/api'
 

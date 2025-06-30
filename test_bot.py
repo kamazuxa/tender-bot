@@ -13,6 +13,7 @@ import pytest
 from company_profile import build_company_profile
 from analyzer import analyzer
 from utils.validators import extract_tender_number
+from common_utils import validate_user_session, format_file_size, sanitize_filename
 
 # Настройка логирования для тестов
 logging.basicConfig(level=logging.INFO)
@@ -120,7 +121,7 @@ async def test_utils():
     """Тестирует утилиты"""
     print("🔧 Тест утилит...")
     try:
-        from utils import validate_user_session, format_file_size, sanitize_filename
+        from common_utils import validate_user_session, format_file_size, sanitize_filename
         
         # Тест валидации сессии
         user_sessions = {123: {"status": "ready_for_analysis", "data": "test"}}
@@ -164,11 +165,6 @@ async def test_api_connections():
             print("✅ Telegram токен настроен")
         else:
             print("⚠️ Telegram токен не настроен")
-        
-        if config.DAMIA_API_KEY and config.DAMIA_API_KEY != 'вставь_сюда_свой_API_ключ':
-            print("✅ DaMIA API ключ настроен")
-        else:
-            print("⚠️ DaMIA API ключ не настроен")
         
         if config.DAMIA_ARBITR_API_KEY and config.DAMIA_ARBITR_API_KEY != 'вставь_сюда_ключ_для_арбитражей':
             print("✅ DaMIA API ключ для арбитражей настроен")

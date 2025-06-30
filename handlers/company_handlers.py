@@ -5,7 +5,7 @@ from telegram.ext import ContextTypes
 from keyboards import supplier_keyboard, back_keyboard, main_menu_keyboard
 from utils.validators import is_valid_inn
 import asyncio
-from utils import handle_navigation_buttons
+from common_utils import handle_navigation_buttons
 from bot import bot
 
 # TODO: реализовать обработчики проверки компании, интеграцию с FSM и UX 

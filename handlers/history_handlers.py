@@ -13,7 +13,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-async def history_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def history_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_instance=None):
     message = update.message or (update.callback_query and update.callback_query.message)
     if not message:
         return
@@ -82,8 +82,12 @@ async def analyze_found_tender_callback(update: Update, context: ContextTypes.DE
         return
     reg_number = parts[1]
     platform_code = parts[2] if len(parts) > 2 and parts[2] else None
-    context.user_data['last_tender_number'] = reg_number
-    context.user_data['last_platform_code'] = platform_code
+    # Пример: если session может быть None, добавить защиту
+    session = getattr(context, 'user_data', None)
+    if session is None:
+        session = {}
+    session['last_tender_number'] = reg_number
+    session['last_platform_code'] = platform_code
     logger.info(f"[analyze_found_tender_callback] Сохраняем в context.user_data: reg_number={reg_number}, platform_code={platform_code}")
     await query.answer()
     await analyze_tender_handler(update, context, bot_instance=None)

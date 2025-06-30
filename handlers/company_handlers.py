@@ -6,7 +6,7 @@ from keyboards import supplier_keyboard, back_keyboard, main_menu_keyboard
 from utils.validators import is_valid_inn
 import asyncio
 from navigation_utils import handle_navigation_buttons
-# from bot import bot  # Удалено для устранения циклического импорта
+# Импорт bot удалён для устранения циклических импортов
 
 # TODO: реализовать обработчики проверки компании, интеграцию с FSM и UX 
 

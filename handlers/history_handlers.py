@@ -5,7 +5,6 @@ from telegram.ext import ContextTypes
 from keyboards import history_keyboard, back_keyboard, main_menu_keyboard
 from config import TENDERGURU_API_CODE
 from navigation_utils import handle_navigation_buttons
-from bot import bot
 
 # TODO: реализовать обработчики истории закупок, интеграцию с FSM и UX 
 
@@ -21,7 +20,7 @@ async def history_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     api = TenderGuruAPI(TENDERGURU_API_CODE)
     await message.reply_text("⏳ Получаю историю закупок...")
     # Обработка кнопок навигации
-    if handle_navigation_buttons(update, bot.user_sessions, main_menu_keyboard):
+    if handle_navigation_buttons(update, context.bot.user_sessions, main_menu_keyboard):
         return
     # Определяем, что это — ИНН или ключевые слова
     if text.isdigit() and len(text) in [10, 12]:

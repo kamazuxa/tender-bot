@@ -6,11 +6,11 @@ from keyboards import supplier_keyboard, back_keyboard, main_menu_keyboard
 from utils.validators import is_valid_inn
 import asyncio
 from navigation_utils import handle_navigation_buttons
-from bot import bot
+# from bot import bot  # Удалено для устранения циклического импорта
 
 # TODO: реализовать обработчики проверки компании, интеграцию с FSM и UX 
 
-async def check_company_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def check_company_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_instance=None):
     message = update.message or (update.callback_query and update.callback_query.message)
     if not message:
         return
@@ -28,7 +28,8 @@ async def check_company_handler(update: Update, context: ContextTypes.DEFAULT_TY
     profile = await loop.run_in_executor(None, build_company_profile, inn)
     await message.reply_text(profile, parse_mode="Markdown", reply_markup=main_menu_keyboard)
     # Обработка кнопок навигации
-    if handle_navigation_buttons(update, main_menu_keyboard, bot):
-        return
+    if bot_instance:
+        if handle_navigation_buttons(update, main_menu_keyboard, bot_instance):
+            return
     # Обработка кнопок 'Назад' и 'В главное меню'
     # ... удалено ... 

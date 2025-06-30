@@ -6,15 +6,14 @@ from keyboards import analyze_keyboard, back_keyboard, main_menu_keyboard
 from utils.validators import extract_tender_number
 from config import TENDERGURU_API_CODE
 from navigation_utils import handle_navigation_buttons
-from bot import bot
 
-async def analyze_tender_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def analyze_tender_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, bot_instance=None):
     message = update.message or (update.callback_query and update.callback_query.message)
     if not message:
         return
     text = getattr(message, 'text', None)
     if not text:
-        await message.reply_text("❌ Введите номер тендера или ссылку.", reply_markup=back_keyboard)
+        await message.reply_text("❌ Введите номер тендера или ссылку.", reply_markup=None)
         return
     text = text.strip()
     tender_number = extract_tender_number(text)
@@ -42,7 +41,8 @@ async def analyze_tender_handler(update: Update, context: ContextTypes.DEFAULT_T
     summary = result.get("overall_analysis", {}).get("summary", "Анализ недоступен")
     await message.reply_text(summary, parse_mode="Markdown", reply_markup=main_menu_keyboard)
     # Обработка кнопок навигации
-    if handle_navigation_buttons(update, bot.user_sessions, main_menu_keyboard):
-        return
+    if bot_instance:
+        if handle_navigation_buttons(update, main_menu_keyboard, bot_instance):
+            return
     # Обработка кнопок 'Назад' и 'В главное меню'
     # ... удалено ... 

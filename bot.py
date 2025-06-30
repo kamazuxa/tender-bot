@@ -1156,9 +1156,9 @@ class TenderBot:
         self.app.add_handler(CommandHandler("cancel", self.cancel_command))
         self.app.add_handler(CommandHandler("status", self.status_command))
         self.app.add_handler(CommandHandler("cleanup", self.cleanup_command))
-        self.app.add_handler(CommandHandler("check", company_handlers.check_company_handler))
-        self.app.add_handler(CommandHandler("analyze", analyze_handlers.analyze_tender_handler))
-        self.app.add_handler(CommandHandler("history", history_handlers.history_handler))
+        self.app.add_handler(CommandHandler("check", lambda update, context: company_handlers.check_company_handler(update, context, self)))
+        self.app.add_handler(CommandHandler("analyze", lambda update, context: analyze_handlers.analyze_tender_handler(update, context, self)))
+        self.app.add_handler(CommandHandler("history", lambda update, context: history_handlers.history_handler(update, context, self)))
         self.app.add_handler(CallbackQueryHandler(self.handle_callback))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
     

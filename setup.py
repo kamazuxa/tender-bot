@@ -76,33 +76,6 @@ def check_vpn_setup():
         print("⚠️ WireGuard не установлен")
         print("   Для работы с OpenAI API рекомендуется установить WireGuard")
 
-def validate_config():
-    """Проверяет конфигурацию"""
-    print("\n🔧 Проверка конфигурации...")
-    
-    env_file = Path(".env")
-    if not env_file.exists():
-        print("❌ Файл .env не найден")
-        return False
-    
-    # Проверяем наличие обязательных переменных
-    required_vars = ["TELEGRAM_TOKEN", "DAMIA_API_KEY", "OPENAI_API_KEY", "SERPAPI_KEY"]
-    missing_vars = []
-    
-    with open(env_file, 'r') as f:
-        content = f.read()
-        for var in required_vars:
-            if f"{var}=" not in content or f"{var}=your_" in content:
-                missing_vars.append(var)
-    
-    if missing_vars:
-        print(f"⚠️ Не заполнены переменные: {', '.join(missing_vars)}")
-        print("   Заполните их в файле .env перед запуском бота")
-        return False
-    
-    print("✅ Конфигурация проверена")
-    return True
-
 def run_tests():
     """Запускает базовые тесты"""
     print("\n🧪 Запуск базовых тестов...")
@@ -110,7 +83,6 @@ def run_tests():
     try:
         # Тест импорта модулей
         import config
-        import damia
         import downloader
         import analyzer
         import utils
@@ -163,9 +135,6 @@ def main():
     # Проверяем VPN
     check_vpn_setup()
     
-    # Проверяем конфигурацию
-    config_ok = validate_config()
-    
     # Запускаем тесты
     tests_ok = run_tests()
     
@@ -175,13 +144,11 @@ def main():
     print("\n" + "="*50)
     print("🎉 Установка завершена!")
     
-    if config_ok and tests_ok and features_ok:
+    if tests_ok and features_ok:
         print("\n✅ Бот готов к запуску!")
         print("🚀 Запустите бота командой: python bot.py")
     else:
         print("\n⚠️ Требуется дополнительная настройка:")
-        if not config_ok:
-            print("   - Заполните API ключи в файле .env")
         if not tests_ok:
             print("   - Исправьте ошибки в коде")
         if not features_ok:

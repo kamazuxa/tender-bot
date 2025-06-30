@@ -7,28 +7,19 @@ from telegram.ext import (
     ApplicationBuilder, ContextTypes, MessageHandler, CommandHandler,
     CallbackQueryHandler, filters
 )
-from config import TELEGRAM_TOKEN, LOG_LEVEL, LOG_FILE, SERPAPI_KEY, OPENAI_API_KEY, OPENAI_MODEL
-from damia import damia_client, extract_tender_number
+from config import TELEGRAM_TOKEN, LOG_LEVEL, LOG_FILE, OPENAI_API_KEY, OPENAI_MODEL
 from downloader import downloader
 from analyzer import analyzer
 from supplier_checker import check_supplier, format_supplier_check_result
 from tender_history import TenderHistoryAnalyzer
 # Импорты для API проверки контрагентов
-from fns_api import fns_api
-from arbitr_api import arbitr_api
-from scoring_api import scoring_api
 from fssp_api import fssp_client
 import os
 import re
 import zipfile
 import tempfile
-from serpapi import GoogleSearch
 import json
 import openai
-from urllib.parse import urlparse
-import mimetypes
-import functools
-import time
 from typing import Optional, Dict, Any, Callable, Union, List
 try:
     import httpx
@@ -38,6 +29,31 @@ try:
     from bs4 import BeautifulSoup
 except ImportError:
     BeautifulSoup = None
+from exportbase_api import get_company_by_inn
+from email_generator import generate_supplier_email
+from keyboards import (
+    main_keyboard, analyze_keyboard, search_keyboard, supplier_keyboard,
+    analytics_keyboard, profile_keyboard, help_keyboard, locked_keyboard,
+    analyze_suggest_keyboard, supplier_suggest_keyboard, search_suggest_keyboard,
+    back_to_menu_keyboard, BACK_CB, analytics_suggest_keyboard, profile_suggest_keyboard,
+    email_suggest_keyboard, history_keyboard, HISTORY_REPEAT_CB
+)
+from texts import (
+    welcome_text, analyze_tender_text, search_tender_text, check_company_text,
+    analytics_text, profile_text, help_text, locked_text,
+    inn_invalid_text, tender_invalid_text, keywords_invalid_text,
+    success_analyze_text, success_supplier_text, success_search_text,
+    suggest_supplier_check_text, suggest_tender_search_text, suggest_analyze_text,
+    back_to_menu_text, success_analytics_text, success_profile_text, success_email_text,
+    analytics_invalid_text, profile_invalid_text, email_invalid_text,
+    tooltip_first_start, tooltip_error_repeat
+)
+from states import BotState
+from utils.validators import is_valid_inn, is_valid_tender_number, is_valid_keywords, extract_tender_number
+import importlib
+company_handlers = importlib.import_module('handlers.company_handlers')
+analyze_handlers = importlib.import_module('handlers.analyze_handlers')
+history_handlers = importlib.import_module('handlers.history_handlers')
 
 # Настройка логирования
 logging.basicConfig(
@@ -160,45 +176,6 @@ EXCLUDE_HTML = [
     *EXCLUDE_MINUS_WORDS
 ]
 
-def is_good_domain(url):
-    netloc = urlparse(url).netloc.lower()
-    return not any(domain in netloc for domain in EXCLUDE_DOMAINS)
-
-async def fetch_html(url):
-    if not httpx or not BeautifulSoup:
-        return None
-    # PDF-фильтр по расширению
-    if url.lower().endswith('.pdf'):
-        return None
-    # PDF-фильтр по mime-type
-    mime, _ = mimetypes.guess_type(url)
-    if mime and 'pdf' in mime:
-        return None
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            resp = await client.get(url, follow_redirects=True)
-            if resp.status_code == 200 and 'pdf' not in resp.headers.get('content-type', ''):
-                soup = BeautifulSoup(resp.text, 'html.parser')
-                # Вырезаем мусорные блоки
-                for tag in soup(['header', 'footer', 'nav', 'aside']):
-                    tag.decompose()
-                # Оставляем только main, article, div.content если есть
-                main = soup.find('main')
-                article = soup.find('article')
-                content_div = soup.find('div', class_='content')
-                if main:
-                    text = main.get_text(separator=' ', strip=True)
-                elif article:
-                    text = article.get_text(separator=' ', strip=True)
-                elif content_div:
-                    text = content_div.get_text(separator=' ', strip=True)
-                else:
-                    text = soup.get_text(separator=' ', strip=True)
-                return text[:8000]  # Ограничим для GPT
-    except Exception as e:
-        logger.error(f"[bot] Ошибка скачивания {url}: {e}")
-    return None
-
 def format_price(price_raw):
     """Форматирует цену с пробелами и заменяет валюту на 'рублей'"""
     if isinstance(price_raw, str):
@@ -282,85 +259,60 @@ class TenderBot:
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /start"""
-        user_id = update.effective_user.id
-        user_name = update.effective_user.first_name or "Пользователь"
-        
+        # Безопасно получаем user_id и user_name
+        user = getattr(update, 'effective_user', None)
+        user_id = getattr(user, 'id', None)
+        user_name = getattr(user, 'first_name', None) or "Пользователь"
         # Инициализируем сессию пользователя
-        if user_id not in self.user_sessions:
+        if user_id and user_id not in self.user_sessions:
             self.user_sessions[user_id] = {
                 'status': 'waiting_for_tender',
+                'state': BotState.MAIN_MENU,
                 'tender_data': None,
                 'files': None,
-                'search_queries': None
+                'search_queries': None,
+                'error_count': 0,
+                'first_start': True,
+                'history': []
             }
-        
-        welcome_message = f"""
-🎉 **Добро пожаловать в TenderBot, {user_name}!**
-
-🤖 **Я помогу вам анализировать государственные закупки и проверять контрагентов.**
-
-**🔍 Что я умею:**
-• 📋 Анализ тендеров и закупок
-• 🏢 Проверка контрагентов (ФНС, ФССП, арбитраж, скоринг)
-• 📊 Детальный анализ документов
-• 🔍 Поиск поставщиков
-• 📈 История тендеров
-
-**🚀 Начните работу:**
-Выберите нужную функцию из меню ниже 👇
-        """
-        
-        # Создаем клавиатуру с основными функциями
-        keyboard = [
-            [InlineKeyboardButton("📋 Анализ тендеров", callback_data="tenders")],
-            [InlineKeyboardButton("🏢 Проверка контрагентов", callback_data="supplier_check")],
-            [InlineKeyboardButton("🔍 Поиск поставщиков", callback_data="supplier_search")],
-            [InlineKeyboardButton("👤 Личный кабинет", callback_data="profile")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        # Отправляем приветственное сообщение
-        await update.message.reply_text(
-            welcome_message,
-            parse_mode='Markdown',
-            reply_markup=reply_markup
-        )
-        
+        elif user_id:
+            self.user_sessions[user_id]['state'] = BotState.MAIN_MENU
+            self.user_sessions[user_id]['error_count'] = 0
+        # Безопасно получаем message
+        message = safe_get_message(update)
+        if message:
+            await message.reply_text(
+                "Привет! Я TenderBot – анализирую тендеры, проверяю компании и нахожу похожие закупки.\n\nВыберите нужный раздел или отправьте номер тендера / ИНН.",
+                reply_markup=main_keyboard
+            )
+        else:
+            chat = getattr(update, 'effective_chat', None)
+            chat_id = getattr(chat, 'id', None)
+            if chat_id:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="Привет! Я TenderBot – анализирую тендеры, проверяю компании и нахожу похожие закупки.\n\nВыберите нужный раздел или отправьте номер тендера / ИНН.",
+                    reply_markup=main_keyboard
+                )
         logger.info(f"[bot] Пользователь {user_id} запустил бота")
     
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /help"""
-        help_text = """
-📋 **Справка по использованию TenderBot**
-
-**Основные функции:**
-• Автоматическое получение данных о тендерах
-• Скачивание документов тендера (техзадание, условия и т.д.)
-• ИИ-анализ документов с помощью OpenAI GPT
-• Структурированный отчет с рекомендациями
-
-**Поддерживаемые форматы:**
-• 19-значный номер тендера
-• 20-значный номер тендера  
-• Ссылки на zakupki.gov.ru
-
-**Что анализируется:**
-• Краткое резюме тендера
-• Товарные позиции
-• Требования к упаковке и качеству
-• Ключевые условия участия
-• Рекомендации по участию
-• Оценка сложности
-
-**Ограничения:**
-• Максимальный размер файла: 50MB
-• Поддерживаемые форматы: PDF, DOC, DOCX, XLS, XLSX, TXT
-• Анализ только текстовых документов
-
-**Поддержка:**
-При возникновении проблем обращайтесь к администратору.
-        """
-        await update.message.reply_text(help_text, parse_mode='Markdown')
+        message = safe_get_message(update)
+        if message:
+            await message.reply_text(
+                "Я TenderBot – анализирую тендеры, проверяю компании и нахожу похожие закупки.\n\nВыберите нужный раздел или отправьте номер тендера / ИНН.",
+                reply_markup=main_keyboard
+            )
+        else:
+            chat = getattr(update, 'effective_chat', None)
+            chat_id = getattr(chat, 'id', None)
+            if chat_id:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text="Я TenderBot – анализирую тендеры, проверяю компании и нахожу похожие закупки.\n\nВыберите нужный раздел или отправьте номер тендера / ИНН.",
+                    reply_markup=main_keyboard
+                )
     
     async def status_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /status"""
@@ -396,9 +348,75 @@ class TenderBot:
             await update.message.reply_text("❌ Ошибка при очистке файлов")
     
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Обрабатывает входящие сообщения"""
-        user_id = update.effective_user.id
-        message_text = update.message.text.strip()
+        message = safe_get_message(update)
+        if not message:
+            return
+        user = getattr(update, 'effective_user', None)
+        user_id = getattr(user, 'id', None)
+        if not user_id:
+            return
+        message_text = getattr(message, 'text', None)
+        if not message_text:
+            return
+        message_text = message_text.strip()
+        session = self.user_sessions.get(user_id, {})
+        state = session.get('state', BotState.MAIN_MENU)
+        # FSM: обработка по состоянию с валидацией, подсказками и историей
+        if state == BotState.ANALYZE or state == BotState.WAIT_TENDER_NUMBER:
+            if not is_valid_tender_number(message_text):
+                session['error_count'] = session.get('error_count', 0) + 1
+                await message.reply_text(tender_invalid_text, reply_markup=back_to_menu_keyboard)
+                if session['error_count'] >= 2:
+                    await message.reply_text(tooltip_error_repeat)
+                return
+            session['error_count'] = 0
+            session['history'] = (session.get('history', []) + [f"Анализ тендера: {message_text}"])[-3:]
+            await message.reply_text(success_analyze_text, reply_markup=analyze_suggest_keyboard)
+            session['state'] = BotState.MAIN_MENU
+        elif state == BotState.SEARCH or state == BotState.WAIT_KEYWORDS:
+            if not is_valid_keywords(message_text):
+                session['error_count'] = session.get('error_count', 0) + 1
+                await message.reply_text(keywords_invalid_text, reply_markup=back_to_menu_keyboard)
+                if session['error_count'] >= 2:
+                    await message.reply_text(tooltip_error_repeat)
+                return
+            session['error_count'] = 0
+            session['history'] = (session.get('history', []) + [f"Поиск: {message_text}"])[-3:]
+            await message.reply_text(success_search_text, reply_markup=search_suggest_keyboard)
+            session['state'] = BotState.MAIN_MENU
+        elif state == BotState.SUPPLIER or state == BotState.WAIT_INN:
+            if not is_valid_inn(message_text):
+                session['error_count'] = session.get('error_count', 0) + 1
+                await message.reply_text(inn_invalid_text, reply_markup=back_to_menu_keyboard)
+                if session['error_count'] >= 2:
+                    await message.reply_text(tooltip_error_repeat)
+                return
+            session['error_count'] = 0
+            session['history'] = (session.get('history', []) + [f"Проверка ИНН: {message_text}"])[-3:]
+            await message.reply_text(success_supplier_text, reply_markup=supplier_suggest_keyboard)
+            session['state'] = BotState.MAIN_MENU
+        elif state == BotState.ANALYTICS:
+            # Пример: всегда успех, можно добавить свою валидацию
+            session['history'] = (session.get('history', []) + ["Аналитика"])[-3:]
+            await message.reply_text(success_analytics_text, reply_markup=analytics_suggest_keyboard)
+            session['state'] = BotState.MAIN_MENU
+        elif state == BotState.PROFILE:
+            session['history'] = (session.get('history', []) + ["Профиль"])[-3:]
+            await message.reply_text(success_profile_text, reply_markup=profile_suggest_keyboard)
+            session['state'] = BotState.MAIN_MENU
+        elif state == BotState.HELP:
+            await message.reply_text("ℹ️ Вопросы и поддержка. Выберите действие:")
+        elif state == BotState.LOCKED:
+            await message.reply_text("🚫 Доступ ограничен. Оформите подписку для продолжения.")
+        elif state == BotState.WAIT_EMAIL_ACTION:
+            # Пример: всегда успех, можно добавить свою валидацию
+            session['history'] = (session.get('history', []) + ["Email"])[-3:]
+            await message.reply_text(success_email_text, reply_markup=email_suggest_keyboard)
+            session['state'] = BotState.MAIN_MENU
+        else:
+            # Любой ввод вне сценария возвращает в главное меню
+            await message.reply_text(welcome_text, reply_markup=main_keyboard)
+            session['state'] = BotState.MAIN_MENU
         
         logger.info(f"[bot] Получено сообщение от {user_id}: {message_text}...")
         
@@ -416,6 +434,7 @@ class TenderBot:
         if user_id not in self.user_sessions:
             self.user_sessions[user_id] = {
                 'status': 'waiting_for_tender',
+                'state': BotState.MAIN_MENU,
                 'tender_data': None,
                 'files': None,
                 'search_queries': None
@@ -452,6 +471,7 @@ class TenderBot:
             logger.info(f"[bot] Обнаружен номер тендера: {tender_number}, сбрасываю статус сессии")
             self.user_sessions[user_id] = {
                 'status': 'waiting_for_tender',
+                'state': BotState.MAIN_MENU,
                 'tender_data': None,
                 'files': None,
                 'search_queries': None
@@ -459,11 +479,12 @@ class TenderBot:
         
         if session['status'] == 'waiting_for_tender':
             # Ожидаем номер тендера
-            await update.message.reply_text("🔍 Ищу тендер...")
+            search_message = await update.message.reply_text("🔍 Ищу тендер...")
             
             try:
                 # Извлекаем номер тендера
                 if not tender_number:
+                    await search_message.delete()  # Удаляем промежуточное сообщение
                     await update.message.reply_text("❌ Не удалось извлечь номер тендера. Пожалуйста, отправьте корректный номер.")
                     return
                 
@@ -471,6 +492,7 @@ class TenderBot:
                 
                 # Специальная обработка для 223-ФЗ
                 if 'notice223' in message_text and len(tender_number) < 19:
+                    await search_message.delete()  # Удаляем промежуточное сообщение
                     logger.info(f"[bot] Обнаружен тендер 223-ФЗ с noticeInfoId: {tender_number}")
                     await update.message.reply_text(
                         f"🔍 **Тендер 223-ФЗ обнаружен**\n\n"
@@ -484,6 +506,7 @@ class TenderBot:
                 try:
                     tender_info = await damia_client.get_tender_info(tender_number)
                 except Exception as e:
+                    await search_message.delete()  # Удаляем промежуточное сообщение
                     error_msg = str(e)
                     logger.error(f"[bot] Ошибка при получении данных тендера: {error_msg}")
                     
@@ -521,11 +544,15 @@ class TenderBot:
                     return
                 
                 if not tender_info:
+                    await search_message.delete()  # Удаляем промежуточное сообщение
                     await update.message.reply_text(
                         f"❌ Не удалось найти тендер с номером {tender_number}.\n"
                         "Проверьте правильность номера или попробуйте позже."
                     )
                     return
+                
+                # Удаляем промежуточное сообщение перед отправкой результатов
+                await search_message.delete()
                 
                 formatted_data = damia_client.format_tender_info(tender_info)
                 user_id = update.effective_user.id
@@ -847,8 +874,9 @@ class TenderBot:
             return
         # --- Показываем кнопки после анализа ---
         keyboard = [
-            [InlineKeyboardButton("🔎 Найти поставщиков", callback_data="find_suppliers")],
-            [InlineKeyboardButton("📈 Анализ похожих закупок", callback_data="history")]
+            [InlineKeyboardButton("🔍 Найти поставщиков", callback_data="find_suppliers")],
+            [InlineKeyboardButton("⚠️ Проверить риски", callback_data="check_risks")],
+            [InlineKeyboardButton("📊 Показать похожие закупки", callback_data="history")]
         ]
         await bot.send_message(chat_id=chat_id, text="Что хотите сделать дальше?", reply_markup=InlineKeyboardMarkup(keyboard))
     
@@ -879,518 +907,87 @@ class TenderBot:
     async def handle_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик callback запросов"""
         query = update.callback_query
-        user_id = query.from_user.id
-        
+        user = getattr(query, 'from_user', None)
+        user_id = getattr(user, 'id', None)
+        await query.answer()
+        data = query.data
+        session = self.user_sessions.get(user_id, {})
+        # FSM: обновляем state в зависимости от действия
+        if data == BACK_CB:
+            session['state'] = BotState.MAIN_MENU
+            await self._show_main_menu(query, context)
+        elif data == "analyze_tender":
+            session['state'] = BotState.ANALYZE
+            await self._show_analyze_menu(query, context)
+        elif data == "search_tenders":
+            session['state'] = BotState.SEARCH
+            await self._show_search_menu(query, context)
+        elif data == "check_company":
+            session['state'] = BotState.SUPPLIER
+            await self._show_supplier_menu(query, context)
+        elif data == "view_analytics":
+            session['state'] = BotState.ANALYTICS
+            await self._show_analytics_menu(query, context)
+        elif data == "profile_menu":
+            session['state'] = BotState.PROFILE
+            await self._show_profile_menu(query, context)
+        elif data == "help_menu":
+            session['state'] = BotState.HELP
+            await self._show_help_menu(query, context)
+        elif data == "buy_subscription":
+            session['state'] = BotState.LOCKED
+            await self._show_locked_menu(query, context)
+        else:
+            await query.edit_message_text("❓ Неизвестная команда.", reply_markup=main_keyboard)
+
+    async def _show_main_menu(self, query, context):
         try:
-            await query.answer()  # Убираем "часики" у кнопки
-        except Exception as e:
-            logger.warning(f"[bot] Не удалось ответить на callback: {e}")
-        
+            await query.edit_message_text(welcome_text, reply_markup=main_keyboard)
+        except Exception:
+            await context.bot.send_message(chat_id=query.message.chat_id, text=welcome_text, reply_markup=main_keyboard)
+
+    async def _show_analyze_menu(self, query, context):
         try:
-            logger.info(f"[bot] Обрабатываем callback: {query.data} от пользователя {user_id}")
-            
-            # Главное меню
-            if query.data == "tenders":
-                await self._show_tenders_menu(query, context)
-            elif query.data == "supplier_check":
-                await self._show_supplier_check_menu(query, context)
-            elif query.data == "supplier_search":
-                await self._show_supplier_search_menu(query, context)
-            elif query.data == "profile":
-                await self._show_profile_menu(query, context)
-            
-            # Проверка контрагентов
-            elif query.data == "fns_check":
-                await self._handle_fns_check(query, context)
-            elif query.data == "arbitr_check":
-                await self._handle_arbitr_check(query, context)
-            elif query.data == "scoring_check":
-                await self._handle_scoring_check(query, context)
-            elif query.data == "fssp_check":
-                await self._handle_fssp_check(query, context)
-            
-            # Возврат в главное меню
-            elif query.data == "back_to_main":
-                await self._show_main_menu(query, context)
-            elif query.data == "back_to_supplier_check":
-                await self._show_supplier_check_menu(query, context)
-            
-            # Личный кабинет
-            elif query.data == "buy_subscription":
-                await self._show_buy_subscription(query, context)
-            elif query.data == "extend_subscription":
-                await self._show_extend_subscription(query, context)
-            elif query.data == "referral_system":
-                await self._show_referral_system(query, context)
-            elif query.data == "contact_support":
-                await self._show_contact_support(query, context)
-            elif query.data == "pay_from_balance":
-                await self._show_pay_from_balance(query, context)
-            elif query.data == "share_ref_link":
-                await self._share_ref_link(query, context)
-            elif query.data == "ref_statistics":
-                await self._show_ref_statistics(query, context)
-            elif query.data == "admin_panel":
-                await self._show_admin_panel(query, context)
-            elif query.data == "admin_users":
-                await self._show_admin_users(query, context)
-            elif query.data == "admin_statistics":
-                await self._show_admin_statistics(query, context)
-            elif query.data == "admin_settings":
-                await self._show_admin_settings(query, context)
-            elif query.data == "admin_logs":
-                await self._show_admin_logs(query, context)
-            
-            # Дополнительные функции админ панели
-            elif query.data == "admin_users_detailed":
-                await self._show_admin_users_detailed(query, context)
-            elif query.data == "admin_search_user":
-                await self._show_admin_search_user(query, context)
-            elif query.data == "admin_stats_daily":
-                await self._show_admin_stats_daily(query, context)
-            elif query.data == "admin_stats_functions":
-                await self._show_admin_stats_functions(query, context)
-            elif query.data == "admin_change_limits":
-                await self._show_admin_change_limits(query, context)
-            elif query.data == "admin_restart_api":
-                await self._show_admin_restart_api(query, context)
-            elif query.data == "admin_clear_cache":
-                await self._show_admin_clear_cache(query, context)
-            elif query.data == "admin_system_logs":
-                await self._show_admin_system_logs(query, context)
-            elif query.data == "admin_full_logs":
-                await self._show_admin_full_logs(query, context)
-            elif query.data == "admin_search_logs":
-                await self._show_admin_search_logs(query, context)
-            elif query.data == "admin_clear_logs":
-                await self._show_admin_clear_logs(query, context)
-            
-            # Старые обработчики
-            elif query.data == "help":
-                await self.help_command(update, context)
-            elif query.data == "status":
-                await self.status_command(update, context)
-            elif query.data == "cleanup":
-                await self.cleanup_command(update, context)
-            elif query.data == "products":
-                # Обработка кнопки "Товарные позиции"
-                valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
-                if not valid:
-                    await handle_session_error(query)
-                    return
-                tender_data = session['tender_data']
-                # Отправляем новое сообщение вместо редактирования
-                await self._send_products_list_to_chat(context.bot, query.message.chat_id, tender_data, page=0)
-            elif query.data == "documents":
-                # Обработка кнопки "Документы"
-                valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
-                if not valid:
-                    await handle_session_error(query)
-                    return
-                # Получаем данные из сессии
-                tender_data = session['tender_data']
-                reg_number = extract_tender_number(str(tender_data))
-                if not reg_number:
-                    await query.edit_message_text("❌ Не удалось извлечь номер тендера.")
-                    return
-                # Отправляем список документов с кнопками скачивания
-                await self._send_documents_list_with_download(context.bot, query.message.chat_id, tender_data, reg_number, page=0)
-            elif query.data == "detailed_info":
-                # Обработка кнопки "Подробная информация"
-                valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
-                if not valid:
-                    await handle_session_error(query)
-                    return
-                # Получаем данные из сессии
-                tender_data = session['tender_data']
-                # Отправляем подробную информацию
-                await self._send_detailed_info_to_chat(context.bot, query.message.chat_id, tender_data)
-            elif query.data == "analyze":
-                # Обработка кнопки "Детальный анализ"
-                valid, session = validate_user_session(user_id, self.user_sessions, 'ready_for_analysis')
-                if not valid:
-                    await handle_session_error(query)
-                    return
-                
-                # Получаем данные из сессии
-                tender_data = session['tender_data']
-                
-                await context.bot.send_message(chat_id=query.message.chat_id, text="🤖 Начинаю анализ документов...")
-                
-                try:
-                    # Скачиваем документы
-                    reg_number = extract_tender_number(str(tender_data))
-                    if not reg_number:
-                        await query.edit_message_text("❌ Не удалось извлечь номер тендера для скачивания документов.")
-                        return
-                        
-                    files = await downloader.download_documents(tender_data, reg_number)
-                    if not files or files.get('success', 0) == 0:
-                        await query.edit_message_text("❌ Не удалось скачать документы для анализа.")
-                        return
-                        
-                    session['files'] = files.get('files', [])
-                    
-                    # Анализируем документы
-                    analysis_result = await self._analyze_documents(
-                        tender_data, 
-                        files.get('files', []), 
-                        update=query, 
-                        chat_id=query.message.chat_id, 
-                        bot=context.bot
-                    )
-                    
-                    if analysis_result:
-                        await self._send_analysis_to_chat(context.bot, query.message.chat_id, analysis_result)
-                        session['status'] = 'completed'
-                    else:
-                        await query.edit_message_text("❌ Не удалось проанализировать документы.")
-                        
-                except Exception as e:
-                    logger.error(f"[bot] Ошибка при анализе: {e}")
-                    await query.edit_message_text(f"❌ Произошла ошибка при анализе: {str(e)}")
-            elif query.data.startswith("products_page_"):
-                try:
-                    page = int(query.data.split("_")[2])
-                except Exception:
-                    page = 0
-                valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
-                if not valid:
-                    await handle_session_error(query)
-                    return
-                tender_data = session['tender_data']
-                # Навигация: редактируем текущее сообщение
-                logger.info(f"[bot] Навигация по товарам: page={page}, message_id={query.message.message_id}")
-                await self._send_products_list_to_chat(context.bot, query.message.chat_id, tender_data, page=page, message_id=query.message.message_id)
-            elif query.data == "current_page":
-                await query.answer("Текущая страница")
-            elif query.data.startswith("documents_page_"):
-                page = int(query.data.split('_')[-1])
-                valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
-                if not valid:
-                    await handle_session_error(query)
-                    return
-                tender_data = session['tender_data']
-                reg_number = extract_tender_number(str(tender_data))
-                if not reg_number:
-                    await query.edit_message_text("❌ Не удалось извлечь номер тендера.")
-                    return
-                # Навигация: редактируем текущее сообщение
-                await self._update_documents_message(
-                    context.bot, 
-                    query.message.chat_id, 
-                    query.message.message_id, 
-                    tender_data, 
-                    reg_number, 
-                    page
-                )
-            elif query.data.startswith("download_"):
-                file_id = query.data.split('_', 1)[1]
-                valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
-                if not valid:
-                    await handle_session_error(query)
-                    return
-                tender_data = session['tender_data']
-                reg_number = extract_tender_number(str(tender_data))
-                if not reg_number:
-                    await query.edit_message_text("❌ Не удалось извлечь номер тендера.")
-                    return
-                    
-                try:
-                    file_path = downloader.get_file_path(reg_number, file_id)
-                    if file_path and os.path.exists(file_path):
-                        with open(file_path, 'rb') as f:
-                            await context.bot.send_document(
-                                chat_id=query.message.chat_id,
-                                document=f,
-                                filename=os.path.basename(file_path)
-                            )
-                    else:
-                        await query.edit_message_text("❌ Файл не найден.")
-                except Exception as e:
-                    logger.error(f"[bot] Ошибка при отправке файла: {e}")
-                    await query.edit_message_text(f"❌ Ошибка при отправке файла: {str(e)}")
-            elif query.data == "find_suppliers":
-                # После анализа: выводим кнопки по всем товарным позициям (только по GPT)
-                valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
-                if not valid:
-                    await handle_session_error(query)
-                    return
-                search_queries = session.get('search_queries', {})
-                if not search_queries:
-                    await query.edit_message_text("В этом тендере отсутствуют товарные позиции (ИИ не выделил их из анализа). Возможно, это закупка услуг или данные не заполнены.")
-                    return
-                keyboard = []
-                for idx, (position, query_text) in enumerate(search_queries.items()):
-                    keyboard.append([InlineKeyboardButton(position, callback_data=f"find_supplier_{idx}")])
-                await context.bot.send_message(
-                    chat_id=query.message.chat_id,
-                    text="Выберите товарную позицию для поиска поставщика:",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
-            elif query.data.startswith("find_supplier_"):
-                valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
-                if not valid:
-                    await handle_session_error(query)
-                    return
-                idx = int(query.data.split('_')[-1])
-                search_queries = session.get('search_queries', {})
-                if idx >= len(search_queries):
-                    await query.edit_message_text("❌ Позиция не найдена.")
-                    return
-                position = list(search_queries.keys())[idx]
-                search_query = list(search_queries.values())[idx]
-                logger.info(f"[bot] Поисковый запрос для SerpAPI по позиции '{position}': {search_query}")
-                await query.edit_message_text(f"🔎 Ищу поставщиков по позиции: {position} (по запросу: {search_query})...")
-                
-                try:
-                    search_results = await self._search_suppliers_serpapi(search_query)
-                    gpt_result = await self._extract_suppliers_gpt_ranked(search_query, search_results)
-                    await context.bot.send_message(chat_id=query.message.chat_id, text=gpt_result, parse_mode='HTML')
-                except Exception as e:
-                    logger.error(f"[bot] Ошибка при поиске поставщиков: {e}")
-                    await query.edit_message_text(f"❌ Произошла ошибка при поиске поставщиков: {str(e)}")
-            elif query.data == "history":
-                # Анализ истории похожих тендеров
-                if not is_valid_session or session.get('status') not in ['ready_for_analysis', 'completed']:
-                    await handle_session_error(query)
-                    return
-                
-                tender_data = session.get('tender_data')
-                if not tender_data:
-                    await handle_session_error(query)
-                    return
-                
-                # Отправляем сообщение о начале анализа
-                await query.edit_message_text("📈 Анализируем историю похожих тендеров...")
-                
-                try:
-                    # Запускаем анализ истории
-                    history_result = await self.history_analyzer.analyze_tender_history(tender_data)
-                    
-                    if history_result.get('success'):
-                        # Отправляем текстовый отчет
-                        await context.bot.send_message(
-                            chat_id=query.from_user.id,
-                            text=history_result['report'],
-                            parse_mode='Markdown'
-                        )
-                        
-                        # Отправляем график если есть
-                        if history_result.get('chart'):
-                            await context.bot.send_photo(
-                                chat_id=query.from_user.id,
-                                photo=history_result['chart'],
-                                caption="📊 График динамики цен по похожим тендерам"
-                            )
-                    else:
-                        error_msg = history_result.get('error', 'Неизвестная ошибка')
-                        await context.bot.send_message(
-                            chat_id=query.from_user.id,
-                            text=f"❌ Ошибка анализа истории: {error_msg}"
-                        )
-                        
-                except Exception as e:
-                    logger.error(f"Ошибка анализа истории тендеров: {e}")
-                    await context.bot.send_message(
-                        chat_id=query.from_user.id,
-                        text="❌ Произошла ошибка при анализе истории тендеров"
-                    )
-        except Exception as e:
-            logger.error(f"[bot] Ошибка при обработке callback: {e}")
-    
-    async def _search_suppliers_serpapi(self, query):
-        from concurrent.futures import ThreadPoolExecutor
-        import asyncio
-        loop = asyncio.get_event_loop()
-        def search(lang):
-            params = {
-                "engine": "yandex",
-                "text": query,
-                "lang": lang,
-                "api_key": SERPAPI_KEY,
-                "num": 20
-            }
-            search = GoogleSearch(params)
-            return search.get_dict()
-        with ThreadPoolExecutor() as executor:
-            ru = await loop.run_in_executor(executor, search, 'ru')
-            en = await loop.run_in_executor(executor, search, 'en')
-        return {'ru': ru, 'en': en}
+            await query.edit_message_text(analyze_tender_text, reply_markup=analyze_keyboard)
+        except Exception:
+            await context.bot.send_message(chat_id=query.message.chat_id, text=analyze_tender_text, reply_markup=analyze_keyboard)
 
-    async def _extract_suppliers_gpt_ranked(self, search_query, search_results):
-        if not httpx or not BeautifulSoup:
-            return ("Для поиска поставщиков необходимо установить зависимости: httpx и beautifulsoup4.\n"
-                    "Выполните команду: pip install httpx beautifulsoup4")
-        links = []
-        for lang in ['ru', 'en']:
-            for item in search_results[lang].get('organic_results', []):
-                url = item.get('link') or item.get('url')
-                if not url:
-                    continue
-                netloc = urlparse(url).netloc.lower()
-                # Фильтрация по домену и паттернам
-                if any(domain in netloc for domain in EXCLUDE_DOMAINS):
-                    continue
-                if any(pat in url.lower() for pat in EXCLUDE_PATTERNS):
-                    continue
-                if any(word in url.lower() for word in EXCLUDE_MINUS_WORDS):
-                    continue
-                links.append(url)
-        if not links:
-            return "В поисковой выдаче не найдено подходящих сайтов (все ссылки — маркетплейсы, агрегаторы или нерелевантные ресурсы)."
-        filtered_links = []
-        # Проверяем все сайты из выдачи (до 40), а не только первые 10
-        for url in links:
-            logger.info(f"[bot] Проверяем сайт: {url}")
-            
-            # PDF-фильтр
-            if url.lower().endswith('.pdf'):
-                logger.info(f"[bot] ❌ {url} — отсеян: PDF файл")
-                continue
-            mime, _ = mimetypes.guess_type(url)
-            if mime and 'pdf' in mime:
-                logger.info(f"[bot] ❌ {url} — отсеян: PDF mime-type")
-                continue
-                
-            html = await fetch_html(url)
-            if not html:
-                logger.info(f"[bot] ❌ {url} — отсеян: не удалось скачать HTML")
-                continue
-                
-            html_lower = html.lower()
-            
-            # Минус-слова в HTML
-            minus_words_found = [word for word in EXCLUDE_MINUS_WORDS if word in html_lower]
-            if minus_words_found:
-                logger.info(f"[bot] ❌ {url} — отсеян: найдены минус-слова: {minus_words_found}")
-                continue
-                
-            # Ослабленная контент-фильтрация: хотя бы одно из условий
-            has_price = "цена" in html_lower or "руб" in html_lower or "₽" in html_lower
-            has_contacts = "@" in html_lower or "phone" in html_lower or "tel:" in html_lower
-            has_keywords = any(word in html_lower for word in ["опт", "заказ", "поставка", "купить", "продажа"])
-            
-            if not (has_price or has_contacts or has_keywords):
-                logger.info(f"[bot] ❌ {url} — отсеян: нет ни цен, ни контактов, ни ключевых слов")
-                continue
-            else:
-                logger.info(f"[bot] ✅ {url} — прошёл фильтрацию: цена={has_price}, контакты={has_contacts}, ключевые слова={has_keywords}")
-                
-            # Title/h1-фильтрация
-            try:
-                soup = BeautifulSoup(html, 'html.parser')
-                title = soup.title.string.lower() if soup.title and soup.title.string else ''
-                h1 = soup.h1.string.lower() if soup.h1 and soup.h1.string else ''
-                bad_title_words = [word for word in ["тендер", "pdf", "архив", "документ"] if word in title]
-                bad_h1_words = [word for word in ["тендер", "pdf", "архив", "документ"] if word in h1]
-                if bad_title_words or bad_h1_words:
-                    logger.info(f"[bot] ❌ {url} — отсеян: плохие заголовки: title={bad_title_words}, h1={bad_h1_words}")
-                    continue
-            except Exception as e:
-                logger.warning(f"[bot] ⚠️ {url} — ошибка при проверке заголовков: {e}")
-                pass
-                
-            # Ослабленное авторанжирование по весу слов (30% релевантности)
-            relevant_words = ["цена", "телефон", "e-mail", "опт", "заказ", "поставка", "купить", "продажа", "контакты"]
-            found_words = [word for word in relevant_words if word in html_lower]
-            weight = len(found_words)
-            max_possible_weight = len(relevant_words)
-            relevance_percent = (weight / max_possible_weight) * 100
-            
-            # Разрешаем сайты с 30% релевантности
-            if relevance_percent >= 30:
-                logger.info(f"[bot] ✅ {url} — релевантность {relevance_percent:.1f}% (найдены слова: {found_words})")
-                filtered_links.append((weight, url, html, relevance_percent))
-            else:
-                logger.info(f"[bot] ❌ {url} — отсеян: низкая релевантность {relevance_percent:.1f}% (найдены слова: {found_words})")
-                
-        # Сортируем по весу (релевантности)
-        filtered_links.sort(key=lambda x: x[3], reverse=True)  # сортируем по проценту релевантности
-        if not filtered_links:
-            return "Не найдено сайтов с релевантной информацией (контент-фильтрация, PDF, минус-слова, нерелевантные заголовки)."
-            
-        logger.info(f"[bot] Найдено {len(filtered_links)} подходящих сайтов из {len(links)} проверенных")
-        for i, (weight, url, html, relevance) in enumerate(filtered_links[:10]):
-            logger.info(f"[bot] Топ {i+1}: {url} (релевантность: {relevance:.1f}%)")
-            
-        results = []
-        client = openai.AsyncOpenAI(api_key=OPENAI_API_KEY)
-        # Отправляем в ИИ максимум 10 лучших сайтов
-        for weight, url, html, relevance in filtered_links[:10]:
-            # Ограничиваем размер HTML для GPT (например, 8000 символов)
-            html_short = html[:8000] if html else ''
-            prompt = f"""Ты — эксперт по анализу сайтов и поиску поставщиков.
+    async def _show_search_menu(self, query, context):
+        try:
+            await query.edit_message_text(search_tender_text, reply_markup=search_keyboard)
+        except Exception:
+            await context.bot.send_message(chat_id=query.message.chat_id, text=search_tender_text, reply_markup=search_keyboard)
 
-Это HTML страницы интернет-магазина. Проанализируй только основные блоки текста (без меню и футера).
+    async def _show_supplier_menu(self, query, context):
+        try:
+            await query.edit_message_text(check_company_text, reply_markup=supplier_keyboard)
+        except Exception:
+            await context.bot.send_message(chat_id=query.message.chat_id, text=check_company_text, reply_markup=supplier_keyboard)
 
-Вот HTML-код страницы, которая появилась по запросу:
-"{search_query}"
+    async def _show_analytics_menu(self, query, context):
+        try:
+            await query.edit_message_text(analytics_text, reply_markup=analytics_keyboard)
+        except Exception:
+            await context.bot.send_message(chat_id=query.message.chat_id, text=analytics_text, reply_markup=analytics_keyboard)
 
-Проанализируй этот HTML и ответь на следующие вопросы:
+    async def _show_profile_menu(self, query, context):
+        try:
+            await query.edit_message_text(profile_text, reply_markup=profile_keyboard)
+        except Exception:
+            await context.bot.send_message(chat_id=query.message.chat_id, text=profile_text, reply_markup=profile_keyboard)
 
-1. Есть ли на странице **реальная информация о товаре**, соответствующем запросу? Если нет — напиши, что сайт не релевантен.
-2. Если информация есть, то извлеки по возможности:
-   – Название товара  
-   – Цена (в рублях, за единицу: кг, мешок, шт и т.д.)  
-   – Упаковка / фасовка (например, мешки по 25 кг)  
-   – Минимальный объём заказа (если указан)  
-   – Название компании или сайта  
-   – ИНН компании (если указан) - ОБЯЗАТЕЛЬНО ищи ИНН в тексте!
-   – Телефон, e-mail, мессенджеры  
-   – Условия доставки (если есть)  
-   – Регион поставки или работы компании (если указан)
+    async def _show_help_menu(self, query, context):
+        try:
+            await query.edit_message_text(help_text, reply_markup=help_keyboard)
+        except Exception:
+            await context.bot.send_message(chat_id=query.message.chat_id, text=help_text, reply_markup=help_keyboard)
 
-⚠️ Если информация частично отсутствует, просто пропусти этот пункт, не выдумывай.
-🔍 ОСОБОЕ ВНИМАНИЕ: Ищи ИНН в тексте - это важно для проверки надежности поставщика!
+    async def _show_locked_menu(self, query, context):
+        try:
+            await query.edit_message_text(locked_text, reply_markup=locked_keyboard)
+        except Exception:
+            await context.bot.send_message(chat_id=query.message.chat_id, text=locked_text, reply_markup=locked_keyboard)
 
-Формат ответа:
-Релевантность: да / нет  
-Товар: ...  
-Цена: ...  
-Фасовка: ...  
-Минимальный объём: ...  
-Компания: ...  
-ИНН: ... (если найден)  
-Контакты: ...  
-Сайт: ...  
-Комментарий: ... (если есть)
-
-Вот HTML-код страницы:
-{html_short}
-"""
-            try:
-                response = await client.chat.completions.create(
-                    model=OPENAI_MODEL,
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=800,
-                    temperature=0.2,
-                )
-                answer = response.choices[0].message.content
-                
-                # Извлекаем ИНН из ответа GPT (если есть)
-                inn_match = re.search(r'ИНН[:\s]*(\d{10,12})', answer, re.IGNORECASE)
-                supplier_check_info = ""
-                
-                if inn_match:
-                    inn = inn_match.group(1)
-                    logger.info(f"[bot] Найден ИНН в ответе GPT: {inn}")
-                    
-                    try:
-                        # Проверяем поставщика через DaMIA API
-                        check_result = await check_supplier(inn)
-                        supplier_check_info = f"\n🔍 **Проверка надежности:** {format_supplier_check_result(check_result)}"
-                        logger.info(f"[bot] Проверка поставщика {inn} завершена: {check_result.get('risk', 'Неизвестно')}")
-                    except Exception as check_error:
-                        logger.error(f"[bot] Ошибка при проверке поставщика {inn}: {check_error}")
-                        supplier_check_info = "\n🔍 **Проверка надежности:** ❌ Ошибка проверки"
-                
-                results.append(f"<b>Сайт:</b> {url} (релевантность: {relevance:.1f}%)\n{answer.strip()}{supplier_check_info}")
-            except Exception as e:
-                logger.error(f"[bot] Ошибка OpenAI: {e}")
-                results.append(f"<b>Сайт:</b> {url} (релевантность: {relevance:.1f}%)\n[Ошибка при обращении к GPT]")
-        return "\n\n".join(results)
-    
     async def _send_products_list_to_chat(self, bot, chat_id: int, tender_data: dict, page: int = 0, message_id: int = None) -> None:
         """Отправляет список товарных позиций с пагинацией"""
         # Если данные содержат номер тендера как ключ, извлекаем продукты из внутреннего объекта
@@ -1556,8 +1153,12 @@ class TenderBot:
         """Настраивает обработчики команд и сообщений"""
         self.app.add_handler(CommandHandler("start", self.start_command))
         self.app.add_handler(CommandHandler("help", self.help_command))
+        self.app.add_handler(CommandHandler("cancel", self.cancel_command))
         self.app.add_handler(CommandHandler("status", self.status_command))
         self.app.add_handler(CommandHandler("cleanup", self.cleanup_command))
+        self.app.add_handler(CommandHandler("check", company_handlers.check_company_handler))
+        self.app.add_handler(CommandHandler("analyze", analyze_handlers.analyze_tender_handler))
+        self.app.add_handler(CommandHandler("history", history_handlers.history_handler))
         self.app.add_handler(CallbackQueryHandler(self.handle_callback))
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
     
@@ -1678,24 +1279,6 @@ class TenderBot:
             reply_markup=reply_markup
         )
 
-    async def _show_main_menu(self, query, context):
-        """Показывает главное меню"""
-        welcome_message = f"""
-🤖 **TenderBot - Главное меню**
-
-Выберите нужную функцию:
-        """
-        
-        keyboard = [
-            [InlineKeyboardButton("📋 Госзакупки", callback_data="tenders")],
-            [InlineKeyboardButton("🔍 Проверка контрагента", callback_data="supplier_check")],
-            [InlineKeyboardButton("🔎 Поиск поставщиков", callback_data="supplier_search")],
-            [InlineKeyboardButton("👤 Личный кабинет", callback_data="profile")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(welcome_message, parse_mode='Markdown', reply_markup=reply_markup)
-    
     async def _show_tenders_menu(self, query, context):
         """Показывает меню госзакупок"""
         message = """
@@ -1972,7 +1555,7 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             return
         
         # Отправляем сообщение о начале проверки
-        await update.message.reply_text(f"🔍 Проверяю ИНН {inn}...")
+        check_message = await update.message.reply_text(f"🔍 Проверяю ИНН {inn}...")
         
         try:
             result = None
@@ -1985,6 +1568,9 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 result = await self._check_scoring(inn)
             elif check_type == 'fssp':
                 result = await self._check_fssp(inn)
+            
+            # Удаляем промежуточное сообщение
+            await check_message.delete()
             
             if result:
                 # Создаем клавиатуру с кнопками навигации
@@ -2000,6 +1586,9 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                 await update.message.reply_text("❌ Ошибка при проверке. Попробуйте позже.")
                 
         except Exception as e:
+            # Удаляем промежуточное сообщение при ошибке
+            await check_message.delete()
+            
             logger.error(f"[bot] Ошибка при проверке ИНН {inn}: {e}")
             # Экранируем специальные символы для Markdown
             error_msg = str(e).replace('*', '\\*').replace('_', '\\_').replace('`', '\\`').replace('[', '\\[').replace(']', '\\]')
@@ -2080,6 +1669,16 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
             if scoring_data.get('status') == 'completed':
                 results = scoring_data.get('results', {})
                 
+                # Словарь для перевода названий моделей на русский
+                model_names = {
+                    '_bankrots2016': 'Риск банкротства (2016)',
+                    '_tech': 'Технический скоринг',
+                    '_diskf': 'Дискриминантный анализ',
+                    '_problemCredit': 'Проблемные кредиты',
+                    '_zsk': 'Защита от кредитных рисков',
+                    'financial_coefficients': 'Финансовые коэффициенты'
+                }
+                
                 # Модели скоринга
                 result += "🎯 **Результаты скоринга:**\n"
                 scoring_models = []
@@ -2090,7 +1689,10 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                         score = model_result.get('score', 0)
                         risk_level = model_result.get('risk_level', 'unknown')
                         probability = model_result.get('probability', 0)
-                        safe_model_name = escape_markdown(str(model_name))
+                        
+                        # Получаем русское название модели
+                        display_name = model_names.get(model_name, model_name)
+                        safe_model_name = escape_markdown(str(display_name))
                         safe_risk_level = escape_markdown(str(risk_level))
                         
                         # Определяем эмодзи для уровня риска
@@ -2101,7 +1703,9 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
                         else:
                             result += f"• {risk_emoji} **{safe_model_name}:** {score} ({safe_risk_level}, {probability})\n"
                     else:
-                        safe_model_name = escape_markdown(str(model_name))
+                        # Получаем русское название модели
+                        display_name = model_names.get(model_name, model_name)
+                        safe_model_name = escape_markdown(str(display_name))
                         result += f"• ⚪ **{safe_model_name}:** Ошибка\n"
                 
                 # Финансовые коэффициенты
@@ -2724,6 +2328,62 @@ https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=012
     async def _show_admin_clear_logs(self, query, context):
         # Добавьте реализацию для очистки логов
         pass
+
+    async def _show_company_profile(self, query, context):
+        """Показать агрегированный профиль компании по ИНН"""
+        user_id = query.from_user.id
+        valid, session = validate_user_session(user_id, self.user_sessions, ['ready_for_analysis', 'completed'])
+        if not valid:
+            await handle_session_error(query)
+            return
+        inn = session.get('inn')
+        if not inn:
+            await query.edit_message_text("❌ Не удалось определить ИНН компании.")
+            return
+        await query.edit_message_text("🔍 Формируем профиль компании...")
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            profile_text = await loop.run_in_executor(None, build_company_profile, inn)
+            await context.bot.send_message(chat_id=query.message.chat_id, text=profile_text, parse_mode='HTML')
+        except Exception as e:
+            logger.error(f"[bot] Ошибка при формировании профиля компании: {e}")
+            await query.edit_message_text(f"❌ Ошибка при формировании профиля компании: {str(e)}")
+
+    async def _find_suppliers_exportbase(self, inn: str) -> str:
+        """Поиск поставщиков через ExportBase по ИНН"""
+        try:
+            company = get_company_by_inn(inn)
+            if not company:
+                return "❌ Компания не найдена в ExportBase."
+            name = company.get('legal_name', '—')
+            phone = company.get('stationary_phone', '') or company.get('mobile_phone', '')
+            email = company.get('email', '')
+            site = company.get('site', '')
+            result = f"🏢 <b>{name}</b>\nИНН: <code>{inn}</code>\n"
+            if phone:
+                result += f"📞 Телефон: {phone}\n"
+            if email:
+                result += f"✉️ Email: {email}\n"
+            if site:
+                result += f"🌐 Сайт: {site}\n"
+            return result
+        except Exception as e:
+            return f"❌ Ошибка поиска поставщика: {e}"
+
+    async def cancel_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Сброс FSM и возврат в главное меню"""
+        user = getattr(update, 'effective_user', None)
+        user_id = getattr(user, 'id', None)
+        if user_id in self.user_sessions:
+            self.user_sessions[user_id]['state'] = BotState.MAIN_MENU
+            self.user_sessions[user_id]['status'] = 'waiting_for_tender'
+        message = safe_get_message(update)
+        if message:
+            await message.reply_text(
+                "Привет! Я TenderBot – анализирую тендеры, проверяю компании и нахожу похожие закупки.\n\nВыберите нужный раздел или отправьте номер тендера / ИНН.",
+                reply_markup=main_keyboard
+            )
 
 # Создаем и запускаем бота
 if __name__ == "__main__":

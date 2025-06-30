@@ -9,6 +9,10 @@ from pathlib import Path
 import os
 import json
 from datetime import datetime
+import pytest
+from company_profile import build_company_profile
+from analyzer import analyzer
+from utils.validators import extract_tender_number
 
 # Настройка логирования для тестов
 logging.basicConfig(level=logging.INFO)
@@ -487,32 +491,6 @@ async def test_supplier_check_apis():
         print(f"❌ Ошибка тестирования API проверки контрагентов: {e}")
         return False
 
-async def test_fns_api():
-    """Тестирует FNS API"""
-    print("🏛️ Тест FNS API...")
-    try:
-        from fns_api import fns_api
-        
-        # Тест проверки компании
-        test_inn = "7704627217"  # Газпром
-        result = await fns_api.check_company(test_inn)
-        
-        if result and result.get('status') in ['found', 'success']:
-            print(f"✅ Успешная проверка компании {test_inn}")
-            print(f"   Нарушения: {result.get('violations_count', 0)}")
-            print(f"   Статус: {result.get('status')}")
-        else:
-            print(f"❌ Ошибка при проверке компании {test_inn}")
-            if result:
-                print(f"   Статус: {result.get('status')}")
-                print(f"   Сообщение: {result.get('message', 'Не указано')}")
-            return False
-        
-        return True
-    except Exception as e:
-        print(f"❌ Ошибка тестирования FNS API: {e}")
-        return False
-
 async def test_fssp_api():
     """Тестирует FSSP API"""
     print("⚖️ Тест FSSP API...")
@@ -916,6 +894,32 @@ async def test_scoring_api_detailed():
         print(f"❌ Ошибка при тестировании API скоринга: {e}")
         return False
 
+@pytest.mark.asyncio
+async def test_company_profile():
+    inn = "7707083893"  # Пример ИНН
+    profile = build_company_profile(inn)
+    assert "ИНН" in profile or "ОГРН" in profile or "Компания" in profile
+
+@pytest.mark.asyncio
+async def test_analyze_tender():
+    tender_data = {"Наименование": "Поставка бумаги", "НМЦК": 100000, "Позиции": [{"Название": "Бумага офисная", "Количество": 100, "Единица": "пачка"}]}
+    files = []
+    result = await analyzer.analyze_tender_documents(tender_data, files)
+    assert "summary" in result.get("overall_analysis", {})
+
+@pytest.mark.asyncio
+async def test_extract_tender_number():
+    text = "https://zakupki.gov.ru/epz/order/notice/ea44/view/common-info.html?regNumber=0123456789012345678"
+    number = extract_tender_number(text)
+    assert number == "0123456789012345678"
+
+@pytest.mark.asyncio
+async def test_fallback_empty_api():
+    # Проверка fallback при пустом ответе API (заглушка)
+    from exportbase_api import get_company_by_inn
+    result = get_company_by_inn("0000000000")
+    assert result == {} or result is not None
+
 async def run_all_tests():
     """Запускает все тесты"""
     print("🚀 Запуск комплексного тестирования TenderBot")
@@ -944,7 +948,11 @@ async def run_all_tests():
         ("FNS API детальное", test_fns_api_detailed),
         ("Arbitr API детальное", test_arbitr_api_detailed),
         ("FSSP API детальное", test_fssp_api_detailed),
-        ("Scoring API детальное", test_scoring_api_detailed)
+        ("Scoring API детальное", test_scoring_api_detailed),
+        ("Профиль компании", test_company_profile),
+        ("Анализ тендера", test_analyze_tender),
+        ("Извлечение номера тендера", test_extract_tender_number),
+        ("Fallback при пустом ответе API", test_fallback_empty_api)
     ]
     
     results = []

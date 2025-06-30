@@ -9,6 +9,7 @@ import hashlib
 import os
 from typing import Optional, Dict, Any, Callable
 from telegram import Update
+from bot import bot
 
 logger = logging.getLogger(__name__)
 
@@ -125,4 +126,41 @@ def create_progress_bar(current: int, total: int, width: int = 20) -> str:
     progress = int((current / total) * width)
     bar = "█" * progress + "░" * (width - progress)
     percentage = int((current / total) * 100)
-    return f"[{bar}] {percentage}%" 
+    return f"[{bar}] {percentage}%"
+
+def handle_navigation_buttons(update: Update, main_menu_keyboard) -> bool:
+    """Обрабатывает кнопки 'Назад' и 'В главное меню' для FSM. Возвращает True, если была обработка навигации."""
+    message = safe_get_message(update)
+    if not message:
+        return False
+    text = getattr(message, 'text', None)
+    user = getattr(update, 'effective_user', None)
+    user_id = getattr(user, 'id', None)
+    if not text or not user_id:
+        return False
+    text = text.strip()
+    if text == '🏠 В главное меню':
+        if user_id in bot.user_sessions:
+            bot.user_sessions[user_id]['state'] = 'MAIN_MENU'
+            bot.user_sessions[user_id]['status'] = 'waiting_for_tender'
+        message.reply_text(
+            "Главное меню:",
+            reply_markup=main_menu_keyboard
+        )
+        return True
+    if text == '🔙 Назад':
+        # Пример возврата к предыдущему шагу FSM (можно доработать по истории)
+        if user_id in bot.user_sessions:
+            state = bot.user_sessions[user_id].get('state')
+            # Возврат к основному сценарию, если были вложенные шаги
+            if state and state.startswith('WAIT_'):
+                bot.user_sessions[user_id]['state'] = state.replace('WAIT_', '')
+            else:
+                bot.user_sessions[user_id]['state'] = 'MAIN_MENU'
+                bot.user_sessions[user_id]['status'] = 'waiting_for_tender'
+        message.reply_text(
+            "Вы вернулись назад.",
+            reply_markup=main_menu_keyboard
+        )
+        return True
+    return False 

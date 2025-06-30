@@ -6,9 +6,9 @@ import os
 from typing import Dict, Any
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from damia import extract_tender_number
 from downloader import downloader
 from utils import validate_user_session, handle_session_error
+from utils.validators import extract_tender_number
 
 logger = logging.getLogger(__name__)
 
@@ -181,54 +181,4 @@ class CallbackHandlers:
                 await query.edit_message_text("❌ Файл не найден.")
         except Exception as e:
             logger.error(f"[bot] Ошибка при отправке файла: {e}")
-            await query.edit_message_text(f"❌ Ошибка при отправке файла: {str(e)}")
-    
-    async def handle_find_suppliers(self, query, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка кнопки 'Найти поставщиков'"""
-        user_id = query.from_user.id
-        valid, session = validate_user_session(user_id, self.bot.user_sessions, 'ready_for_analysis')
-        if not valid:
-            await handle_session_error(query)
-            return
-        
-        search_queries = session.get('search_queries', {})
-        if not search_queries:
-            await query.edit_message_text("В этом тендере отсутствуют товарные позиции (ИИ не выделил их из анализа). Возможно, это закупка услуг или данные не заполнены.")
-            return
-        
-        keyboard = []
-        for idx, (position, query_text) in enumerate(search_queries.items()):
-            keyboard.append([InlineKeyboardButton(position, callback_data=f"find_supplier_{idx}")])
-        
-        await context.bot.send_message(
-            chat_id=query.message.chat_id,
-            text="Выберите товарную позицию для поиска поставщика:",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-    
-    async def handle_find_supplier(self, query, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка поиска поставщика для конкретной позиции"""
-        user_id = query.from_user.id
-        valid, session = validate_user_session(user_id, self.bot.user_sessions, 'ready_for_analysis')
-        if not valid:
-            await handle_session_error(query)
-            return
-        
-        idx = int(query.data.split('_')[-1])
-        search_queries = session.get('search_queries', {})
-        if idx >= len(search_queries):
-            await query.edit_message_text("❌ Позиция не найдена.")
-            return
-        
-        position = list(search_queries.keys())[idx]
-        search_query = list(search_queries.values())[idx]
-        logger.info(f"[bot] Поисковый запрос для SerpAPI по позиции '{position}': {search_query}")
-        await query.edit_message_text(f"🔎 Ищу поставщиков по позиции: {position} (по запросу: {search_query})...")
-        
-        try:
-            search_results = await self.bot._search_suppliers_serpapi(search_query)
-            gpt_result = await self.bot._extract_suppliers_gpt_ranked(search_query, search_results)
-            await context.bot.send_message(chat_id=query.message.chat_id, text=gpt_result, parse_mode='HTML')
-        except Exception as e:
-            logger.error(f"[bot] Ошибка при поиске поставщиков: {e}")
-            await query.edit_message_text(f"❌ Произошла ошибка при поиске поставщиков: {str(e)}") 
+            await query.edit_message_text(f"❌ Ошибка при отправке файла: {str(e)}") 

@@ -396,3 +396,16 @@ class DamiaArbitrAPI:
 
 # Создаем глобальный экземпляр
 arbitr_api = DamiaArbitrAPI() 
+
+async def _get_arbitr_by_inn_async(inn: str):
+    return await arbitr_api.get_arbitrage_cases_by_inn(inn)
+
+def get_arbitr_by_inn(inn: str) -> dict:
+    """Синхронная обёртка для получения данных Арбитража по ИНН"""
+    return asyncio.run(_get_arbitr_by_inn_async(inn))
+
+def format_arbitr_info(arbitr: dict) -> str:
+    """Форматирование для Telegram"""
+    if not arbitr or arbitr.get("status") != "found":
+        return "❌ Арбитраж: данные недоступны"
+    return arbitr_api.format_arbitrage_summary(arbitr) 

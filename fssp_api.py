@@ -7,6 +7,7 @@ import aiohttp
 import logging
 from typing import Dict, Optional, Any, List
 from config import FSSP_API_KEY
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -455,4 +456,23 @@ class FSSPAPIClient:
             return False
 
 # Создаем глобальный экземпляр клиента
-fssp_client = FSSPAPIClient() 
+fssp_client = FSSPAPIClient()
+
+async def _get_fssp_by_inn_async(inn: str):
+    return await fssp_client.check_company(inn)
+
+def get_fssp_by_inn(inn: str) -> Optional[dict]:
+    """Синхронная обёртка для получения данных ФССП по ИНН"""
+    return asyncio.run(_get_fssp_by_inn_async(inn))
+
+def format_fssp_info(fssp: dict) -> str:
+    """Форматирование для Telegram"""
+    if not fssp or fssp.get("status") != "success":
+        return "❌ ФССП: данные недоступны"
+    summary = fssp.get("summary", {})
+    total = summary.get("total_proceedings", 0)
+    active = summary.get("active_proceedings", 0)
+    debt = summary.get("total_debt", 0)
+    result = f"👮 <b>Исполнительные производства (ФССП)</b>\n"
+    result += f"Всего производств: <b>{total}</b>\nАктивных: <b>{active}</b>\nОбщая задолженность: <b>{debt:,} руб.</b>\n"
+    return result 

@@ -254,7 +254,7 @@ class TenderBot:
     def __init__(self):
         self.app = None
         self.user_sessions = {}  # Для хранения состояния пользователей
-        self.history_analyzer = TenderHistoryAnalyzer(damia_client)
+        self.history_analyzer = TenderHistoryAnalyzer()
     
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Обработчик команды /start"""
